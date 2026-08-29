@@ -29,8 +29,9 @@
 - **Accessibility (binding).** WCAG 2.1 AA; grid fully keyboard-operable; focus management/restore; tabs `role="tab"` + `aria-selected` + roving tabindex; modals trap and restore focus; tooltip triggers focusable.
 - **Zero server.** No backend, no telemetry, no analytics, no outbound traffic except user-triggered BYOK. Theme in `localStorage 'theme'`; never `prefers-color-scheme`.
 - **Disabled, never hidden.** When permission doesn't allow an action, control stays visible but disabled with an explanation (FR-34).
+- **Read-path borrow, then close the gaps.** The TMDL read path adapts `lineage-tracer`'s `bridge/src/pbip/tmdl-parser.js` (MIT, Jihwan Kim → pbip-documenter — retain LICENSE + attribution header verbatim). That parser is MISSING `lineageTag` (the object id), `queryGroup`, `perspective` membership, `functions.tmdl` objects, and all source byte spans (AD-2/AD-3) — all MUST be added, and it MUST be optimized to the FR-8 performance floor. **LSDL has no borrow** — `lineage-tracer` has no LSDL reader; author `lsdl-reader.ts` fresh.
 - **Commit message rule (repo `.agents/AGENTS.md`).** Commit messages and descriptions MUST use random data — never project/company names. Every commit example below uses a random token (`feat: step 7c2f`) — keep that style.
-- **Descope order (PRD §9.1):** FR-26..29 (AI) first, then FR-34..38 (chrome), then FR-19..21 (lineage). Core: FR-1..18, FR-22..25, FR-30..33.
+- **Descope order (PRD §9.1, user-overridden 2026-08-30):** FR-26..29 (AI) first, then FR-34..38 (chrome). **FR-19..21 (lineage canvas) is NON-OPTIONAL and must ship** — user confirmed the draggable node canvas + dependency stream trace are required. Core: FR-1..18, FR-22..25, FR-30..33.
 
 ## File Structure
 
@@ -43,9 +44,9 @@ src/
     journal.ts          # EditSession: field/delete records, coalescing, project(model,journal) fold
     graph.ts            # ObjectGraph: edge kinds, transitive used count, direct/transitive/leaf breakdown
   parse/
-    tmdl-reader.ts      # definition tree -> ModelObject[] + spans; emits declaration/doc/name spans
-    lsdl-reader.ts      # linguisticMetadata block locate + JSON parse; LSDL binding index
-    pbir-reader.ts      # report visual -> field usage -> edges; broken-reference attribution
+    tmdl-reader.ts      # ADAPTED+OPTIMIZED from lineage-tracer tmdl-parser.js; adds missing kinds + spans
+    lsdl-reader.ts      # AUTHORED FRESH (lineage-tracer has no LSDL): block locate + JSON parse + binding index
+    pbir-reader.ts      # ADAPTED from lineage-tracer visual-parser.js -> field usage -> edges
     spans.ts            # shared source-span emitter used by all readers
   write/
     patch-engine.ts     # apply half-open span patches to originalText, descending, ties desc-end
@@ -349,38 +350,38 @@ export interface ModelObject {
 
 - [ ] **Step 3: Commit** — `git commit -m "feat: step 3907"`
 
-### Task 3.2: TMDL reader
+### Task 3.2: TMDL reader (borrowed + optimized)
 
 **Files:**
-- Create: `src/parse/tmdl-reader.ts`
+- Create: `src/parse/tmdl-reader.ts` — adapted from `bridge/src/pbip/tmdl-parser.js` in `lineage-tracer`, itself adopted from `pbip-documenter` (MIT, Jihwan Kim; retain the LICENSE + attribution header verbatim)
 
 **Interfaces:**
-- Produces: `parseTmdlProject(files: Map<path, text>) → { objects: ModelObject[], errors: ParseError[] }`; `ParseError = { file, line, message }` (failure legibility). Reads `database.tmdl`, `model.tmdl`, `tables/*.tmdl`, `relationships.tmdl`, `roles/*.tmdl`, `expressions.tmdl`, `functions.tmdl`, `perspectives/*.tmdl` → one object per declaration (FR-5).
+- Produces: `parseTmdlProject(files: Map<path, text>) → { objects: ModelObject[], errors: ParseError[] }`; `ParseError = { file, line, message }`. Reads `database.tmdl`, `model.tmdl`, `tables/*.tmdl`, `relationships.tmdl`, `roles/*.tmdl`, `expressions.tmdl`, `functions.tmdl`, `perspectives/*.tmdl` → one object per declaration (FR-5).
 
-- [ ] **Step 1: Implement a lightweight indentation-based TMDL reader** — table/column/measure/calcGroup/calcItem/hierarchy/fieldParam/function declarations in order; classify `type: calculated` as `calculatedColumn`; `calculationGroup` block → `calculationGroup` + `calculationItem` objects; `extendedProperty ParameterMetadata` → `isFieldParameter`; record `queryGroup`, `displayFolder`, `isHidden`, `ordinal`, `perspective` membership.
+**Borrow, then close the gaps the write path needs.** The borrowed parser is a line-by-line state machine that already tags auto-date tables, calc-group tables, and field-parameter tables, and reads `isHidden`/`ordinal`/`displayFolder`. It is **missing** — and MUST be added for AD-2 / AD-3 / FR-5:
+- `lineageTag` (the object id — the borrowed parser reads none)
+- `queryGroup`, `perspective` membership, `changedProperty`
+- `functions.tmdl` → `daxFunction` objects (triple-backtick body preserved verbatim)
+- **source byte spans** (declaration, doc-comment, name-token) — the borrowed parser emits none
 
-- [ ] **Step 2: Capture every source span** via the emitter (declaration, doc-comment, name-token) and a `function` triple-backtick body preserved verbatim.
+- [ ] **Step 1: Port `tmdl-parser.js` → `parse/tmdl-reader.ts`** — keep the state-machine structure, the `PARTITION_SOURCE_TYPES` set, and the `_isAutoDate`/`_isCalcGroup`/`_isFieldParameter` tags; add the missing kinds and spans; keep the MIT attribution header.
+- [ ] **Step 2: Optimize for 2000 objects (FR-8).** Replace the per-file `content.split('\n')` into arrays with a single offset-tracked line scan (running byte offset). Replace the two `Object.keys(files).filter(f => f.startsWith(...))` full scans with ONE prefix-bucketed file index built once. Avoid RegExp-per-line; use `startsWith`/`charCodeAt` fast paths. Target: folder→grid ≤5s, main-thread block ≤50ms.
+- [ ] **Step 3: Capture every source span** via the emitter (declaration, doc-comment, name-token) and a `function` triple-backtick body preserved verbatim.
+- [ ] **Step 4: Error path** — a file that fails to parse yields a `ParseError{file, line}` and the remaining files still load (FR-5).
+- [ ] **Step 5: Unit tests** — `tests/unit/tmdl-reader.test.ts`: table+column+measure counts; calculated vs column; calc group + items; field parameter; `functions.tmdl` → `daxFunction` + verbatim body; `lineageTag`/`queryGroup`/`perspective`/`changedProperty` retained; every object carries declaration/doc-comment/name-token spans; a file parse error names file+line and the rest still parse.
+- [ ] **Step 6: Commit** — `git commit -m "feat: step 3141"`
 
-- [ ] **Step 3: Error path** — a file that fails to parse yields a `ParseError{file, line}` and the remaining files still load (FR-5).
-
-- [ ] **Step 4: Unit tests** — `tests/unit/tmdl-reader.test.ts`: table+column+measure object counts; calculated vs column; calc group + items; field parameter; a file parse error names file+line and other files still parse.
-
-- [ ] **Step 5: Commit** — `git commit -m "feat: step 3141"`
-
-### Task 3.3: LSDL reader + binding index
+### Task 3.3: LSDL reader + binding index (authored fresh)
 
 **Files:**
-- Create: `src/parse/lsdl-reader.ts`
+- Create: `src/parse/lsdl-reader.ts` — **no borrow: `lineage-tracer` has no LSDL reader.** Every line is new; do not look to the repo for this.
 
 **Interfaces:**
 - Produces: `parseLSDL(cultureText) → { customInstructions, entities, relationships, agents, block: { start, end }, contentTypeLine }`; `LSDLBindingIndex`; `buildBindingIndex(lsdl, objects) → Map<objectId, { file, span, state }>` (AD-8 — rename planning reads the index, never text search). A dangling binding is retained + flagged, not dropped (FR-6); no `linguisticMetadata` → empty LSDL; no culture file → Prep tab empty (not error).
 
 - [ ] **Step 1: Locate the triple-backtick block** and its `contentType: json` line without disturbing either (FR-6/FR-23). Parse the JSON; split `CustomInstructions` / `Entities` / `Relationships` / `Agents`.
-
 - [ ] **Step 2: Build the binding index** — map LSDL entity `Definition.Binding` (`[Table].[Column]`) → object id via the shared resolver; retain + flag dangling bindings.
-
 - [ ] **Step 3: Unit tests** — `tests/unit/lsdl-reader.test.ts`: block boundary + contentType line preserved; entity↔object association; dangling binding flagged; empty LSDL; no culture file → empty.
-
 - [ ] **Step 4: Commit** — `git commit -m "feat: step 3508"`
 
 ### Task 3.4: PBIR reader (field usage → edges)
@@ -650,6 +651,7 @@ The mockup `mockup/index.html` is the visual contract. Diff styling/layout again
 - FR-1..4 → Task 5.1, 7.1 · FR-5..8 → 3.1-3.4, 6.1-6.2, 8.3 · FR-9..14 → 2.4, 6.1, 7.2, 7.3 · FR-15..18 → 3.3, 7.4 · FR-19..21 → 7.5 · FR-22..25 → 4.1-4.3, 5.1 · FR-30..33 → 6.1, 7.3, 7.6 · FR-34..38 → 7.1, 7.2, 7.4.
 - FR-26..29 (AI) → deliberately OUT of the build tasks (v2). Not a gap; a descope per §9.1.
 - Verification gates (PRD §5) → Tasks 1.2, 8.1, 8.2. Round-trip fidelity → 4.3, 8.1.
+- **Read-path provenance:** Task 3.2 adapts + optimizes `lineage-tracer`'s `tmdl-parser.js` (MIT, Jihwan Kim → pbip-documenter) and MUST add `lineageTag`/`queryGroup`/`perspective`/`changedProperty`/`functions.tmdl`/source spans. Task 3.3 (LSDL) is authored fresh — `lineage-tracer` has no LSDL reader.
 
 **Placeholder scan:** No TBD/TODO. Every core correctness task has real test code or a code contract. UI tasks specify exact files + behaviors, diffing against the mockup for styling (the mockup is the visual contract, not a placeholder).
 
