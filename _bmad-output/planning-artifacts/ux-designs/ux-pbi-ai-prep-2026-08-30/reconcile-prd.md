@@ -1,0 +1,87 @@
+# Reconciliation — PRD + Addendum → UX Spines
+
+- **Sources (originals, read in full):** `_bmad-output/planning-artifacts/prds/prd-pbi-ai-prep-2026-08-28/prd.md` (632 lines) + `addendum.md` (184 lines)
+- **Spines:** `DESIGN.md` (345 lines) + `EXPERIENCE.md` (269 lines), this directory
+- **Method:** originals compared directly against both spines; digests not trusted. Behavioral items must live in `EXPERIENCE.md`; PRD-declared visual contracts accepted in `DESIGN.md` by reference. Mechanism/engineering consequences (parse internals, span-patch encoding, stack, fixtures, automated gates) are outside a UX spine's declared scope (EXPERIENCE.md conflict rule) and are not counted as dropped unless they carry user-visible behavior.
+
+## 1. Landed — 47 items (38/38 FRs, 4/4 UJs, states, a11y, perf, KPI, cross-cutting)
+
+### Functional requirements FR-1..38 (38)
+
+- **FR-1** — readwrite picker in one gesture (UJ-1/UJ-4); unsupported engine names Chrome/Edge/Opera, no picker (State: Unsupported browser); sensitive-folder refusal surfaces readably, no silent failure (Voice no-silent-failure rule) → EXPERIENCE Key Flows, State Patterns, Voice & Tone.
+- **FR-2** — model picker only when a folder holds several models (single model proceeds directly); refusal "states what was looked for" → EXPERIENCE IA 'Model picker', Voice & Tone.
+- **FR-3** — legacy TMSL + pbism <4.0 refuse with file + value + expectation; non-PBIR report disables features, not broken; `qnaEnabled` banner on Prep for AI → EXPERIENCE State 'Discovery refusal', closure check.
+- **FR-4** — recent projects resume without re-picking; vanished handle → moved-or-deleted + removal offer; folder-name-only display → EXPERIENCE IA 'Recent projects', State 'Recent target vanished', Voice row. (Resume re-grant dropped — see §2.)
+- **FR-5** — parse failure names file + line number, remaining files still load → EXPERIENCE State 'Parse failure'. (Object classification/spans = mechanism, out of UX scope.)
+- **FR-6** — LSDL entity with dangling binding retained and flagged, not dropped; no culture file → empty LSDL, not an error → EXPERIENCE State 'Parse failure' + 'No culture file'.
+- **FR-7** — broken reference reported and attributed to its visual; no Report folder → usage renders unavailable, not zero → EXPERIENCE UJ-3 failure, KPI 'Broken references', State 'No Report folder'.
+- **FR-8** — ≤5s folder→grid at 2,000 objects; LSDL + report parsing deferred to first need with visible loading state; main-thread blocks ≤50ms → EXPERIENCE Performance floor, State 'Parse progress'.
+- **FR-9** — column order (checkbox, lineage icon, type dot + plain label, parent table, name, rename-to, Used, description, DAX); used-count pill u0 blue attention / u1 grey / u6 grey-strong with hover split direct/transitive/leaf, zero renders 'Unused'; tables first-class rows; hidden marker; 60fps virtualised → EXPERIENCE Data grid, Used-count pill, Tooltip, State 'Hidden object'; DESIGN data-grid, used-pill.
+- **FR-10** — one-action 'Empty'/'Unused' filter chips; real type/table filters; search over name + table + description + DAX resetting page 1; sortable headers asc/desc with ▲/▼, `aria-sort`, page reset; 50/page pager, ≤7-page window, 'Showing X–Y of Z'; matching-row + edited counts visible → EXPERIENCE Chip, Field, Data grid, Pagination rows, pending chip.
+- **FR-11** — 500-char decoded cap refuses input; 200-char Copilot cutoff marker; multi-line → consecutive `///` lines; Tab/Shift+Tab traverse, Enter commits + moves down, Escape reverts; changed-until-saved marker; tables count toward backlog/coverage → EXPERIENCE Grid editing, State 'Edited-until-saved', Data grid, KPI definitions.
+- **FR-12** — collision blocks and names the conflict; `lineageTag` never changes; DAX-reference warning lists every referencing expression, no rewrite; same write propagates to report visual bindings + LSDL entity key; individual and bulk renames both stage → EXPERIENCE Rename pipeline, Voice rows.
+- **FR-13** — 'Hide in model' stages `isHidden` as pending; model visibility and AI data schema are separate controls, separate vocabulary, never conflated → EXPERIENCE AI schema toggles, Bulk action bar. (changedProperty emission = write mechanism, out of UX scope.)
+- **FR-14** — pending rows list object, field pill, strikethrough old → new; per-change Discard; survives tab navigation; virtualised scroll at 2,000; browser close confirmation → EXPERIENCE Pending-changes review, State 'Unsaved changes on tab close', Performance floor.
+- **FR-15** — live count against 10,000, input refused beyond, decoded-string rule, gauge turns destructive; empty editor saves new instructions → EXPERIENCE Copy prompt, State 'No instructions'. (Line-break fidelity dropped — see §2.)
+- **FR-16** — state-labelled chips (User / Gene / Sugg / Dele, strikethrough Deleted); user adds write User state; removal tombstones as Deleted; 20-live cap with 'N/20' counter and amber 'max 20 reached'; ≤6 inline + '+N more' expands → EXPERIENCE Synonym chips; DESIGN synonym-chip. (Entity creation dropped — see §2.)
+- **FR-17** — AI visibility shown distinct from model visibility; bulk include/exclude over filter selection; exclusion warns naming both objects; per-table expander (field count, included/total, synonym totals, per-field toggles + chips); dot grey all-excluded / blue any-included → EXPERIENCE AI schema toggles, Schema expander; DESIGN schema-expander.
+- **FR-18** — verified-answers rail beside the instructions editor; read-only here, authored in Power BI; trigger prompts listed; empty state, not an error → EXPERIENCE IA instructions sub-tab, State 'No VerifiedAnswers', KPI definition.
+- **FR-19** — tables as nodes, relationships as edges, pan/zoom/zoom-to-fit ('Reset view'); field-parameter and calculation-group tables marked distinctly; inactive relationships distinguished; nodes collapsed at load → EXPERIENCE Lineage node, Lineage trace; DESIGN lineage-node.
+- **FR-20** — selecting dims everything off-path (0.32); dependents listed with counts (measures/visuals/pages); selecting a visual traces back; side panel shows selection detail + DAX → EXPERIENCE Lineage trace, IA 'Lineage side panel'.
+- **FR-21** — canvas→grid jump filters and scrolls to the object; grid row 'View on canvas' switches to Lineage, selects, centres → EXPERIENCE Lineage trace, IA Lineage row.
+- **FR-22** — only changed files written; `///` at declaration indentation; original line-ending convention + UTF-8 no BOM; atomic replace → EXPERIENCE Write-Path Safety #2.
+- **FR-23** — edit-free save byte-identical including culture-file LSDL indentation, surfaced as the byte-fidelity promise (SM-1) → EXPERIENCE Write-Path Safety #2. (Automated check = engineering gate, out of UX scope.)
+- **FR-24** — revoked permission stops save, reports every file already written, retry re-requests permission on click, pending changes retained → EXPERIENCE State 'Permission denied / revoked', 'Save failure'.
+- **FR-25** — pre-write comparison blocks the write; reload-or-overwrite naming the file; reload discards only that file's pending changes and says so → EXPERIENCE State 'External change detected', Write-Path Safety #3.
+- **FR-26** — nothing configured by default; free-text base URL + model; session-only keys, `localStorage` behind explicit opt-in, one action clears every tier; screen states browser→provider direct and recommends spend-capped key → EXPERIENCE BYOK config.
+- **FR-27** — runs over current filter selection with count stated before the run; lands as unsaved edits marked AI-drafted; provider error reported, every row unchanged; cancel keeps returned batches, discards in-flight → EXPERIENCE Bulk drafting, State 'AI-drafted edit'.
+- **FR-28** — draft lands unsaved, never overwrites existing instructions without confirmation; limit-checked before insertion → EXPERIENCE Bulk drafting.
+- **FR-29** — suggestions arrive as pending Sugg chips, accepted/rejected individually; never duplicates an existing term → EXPERIENCE Synonym chips.
+- **FR-30** — checkbox per row keyed by `lineageTag`, surviving sort/filter/search/paging; Shift+click range-fills the page; Space toggles focused row; 'Select all N matching' with count, indeterminate when partial; bar shows 'N outside current filter' + one-click Clear → EXPERIENCE Selection model.
+- **FR-31** — bar appears only when a selection exists; seven actions in order (Apply renaming, Set description, Include in AI, Exclude from AI, Hide in model, Delete selected, Clear); destructive styling on delete only; bulk writes stage as pending, never disk-direct → EXPERIENCE Bulk action bar.
+- **FR-32** — fixed rule order (find/replace → strip prefix → strip suffix → underscores→spaces → Title Case, + whitespace collapse); live current→new preview, nothing stages until confirmed; collisions block apply naming conflicts; individually typed renames unaffected → EXPERIENCE Rename pipeline.
+- **FR-33** — import columns via fresh final M step `PBIPreAI_RemoveUnusedCols`; measures/calc objects deleted via TMDL span patch (PRD's 'calculated tables' compressed to 'calc columns/items/groups' in the spine's method list — minor wording loss inside a landed mechanism); wave cascade confirmed in memory with newly orphaned objects named each round; per-object 'Breaks:' dependents; dialog groups by table with counts; one verbatim Git warning → EXPERIENCE Delete blast radius, Write-Path Safety #4, Voice row.
+- **FR-34** — landing states product/problem, capability badge, write-permission rationale beneath the open action; recent projects listed; declined permission → read-only with controls visible but disabled with an explanation, never hidden → EXPERIENCE IA Landing, State 'Permission denied / revoked', Voice row.
+- **FR-35** — four-stage stepper (Definition tree, Model objects, Lineage graph, Report layer) with live per-stage counts + bar, counts from the real parse → EXPERIENCE State 'Parse progress'; DESIGN parse-card.
+- **FR-36** — light default; dark user-initiated toggle persisted in `localStorage 'theme'`; never follows `prefers-color-scheme` → EXPERIENCE Foundation, State 'Dark mode'; DESIGN Brand & Style.
+- **FR-37** — KPI cards: uppercase label, live figure, one-line plain-English definition; counts live with edits/deletes → EXPERIENCE KPI card row, UJ-2 step 5; DESIGN kpi-card.
+- **FR-38** — two sub-tabs 'AI instructions' / 'AI schema & synonyms'; instructions full height with gauge + verified-answers rail right; schema view is the full-height per-table explorer → EXPERIENCE IA Prep for AI rows; DESIGN layout rails.
+
+### User journeys UJ-1..4 (4)
+
+- **UJ-1** — every beat mapped in EXPERIENCE Key Flows: Edge, readwrite granted once, 'Empty description' filter pre-applied (180 rows), type down the column with Tab, 200-char cutoff marker, Save with 'Writes to N files · UTF-8 · CRLF preserved', git-diff climax; locked-file failure names the file and says to close Desktop, pending retained.
+- **UJ-2** — Prep for AI sub-tab, live 10,000 counter, grain + metric-routing rules, 'revenue' synonym for `[Total Spend]`, six helper measures excluded (dots turn grey), AI-reach KPI + '54/209' pill update, republish/refresh climax; 10,400-char paste refused at decoded cap failure.
+- **UJ-3** — Lineage tab, nodes collapsed, off-path dimming with counts (one relationship, two measures, four visuals across two pages), DAX side panel, 'Select & return to grid', write-in-the-grid climax; broken-reference failure attributed to the visual. (PRD's 'Relationships tab' label reconciled: shipped label 'Lineage' noted in IA.)
+- **UJ-4** — bookmark + capability badge, own-Git clone, one-gesture readwrite grant, keyboard-first edits staging as pending, commit + PR climax, nothing installed/uploaded; resume-next-day failure with folder-name-only display and vanished-handle handling.
+
+### States & edge cases (1 cluster — 17 states)
+
+- **States/edges** — unsupported browser; discovery refusals (TMSL, pbism <4.0, non-PBIR, no-model folder); `qnaEnabled` banner; parse failure (file + line, rest load); dangling LSDL entity; no culture file; no instructions; no VerifiedAnswers; no Report folder (usage unavailable, not zero); zero grid matches (honest counts + Clear); locked file; external change (reload-or-overwrite); revoked permission (files-written report + click-gesture retry); vanished recent target; empty-description cell; hidden-object marker; AI-drafted marker — all present as rows in EXPERIENCE State Patterns.
+
+### Accessibility (1)
+
+- **A11y** — grid fully keyboard-operable, WCAG 2.1 AA; tab order follows column order left→right, row by row; visible focus indicator on every interactive element → EXPERIENCE Accessibility Floor + Interaction Primitives (extends PRD with roles, aria-live regions, roving tabindex, focus trap/restore).
+
+### Performance budgets (1)
+
+- **Perf** — all four PRD budgets present in EXPERIENCE Performance floor: folder→grid ≤5s @2,000 objects; 60fps scroll / no frame over 16ms on grid and pending-changes list; filter ≤200ms; main-thread blocks ≤50ms; virtualisation non-optional.
+
+### KPI label sets (1)
+
+- **KPI labels** — all three PRD sets carried verbatim in EXPERIENCE KPI card row (Description: Objects, Backlog, Unused, Pending edits, Coverage; Prep for AI: AI reach, Instruction budget, Synonyms authored, Excluded, Verified answers (informational); Lineage: Tables, Edges, Isolated nodes, Visual bindings, Broken references), with mockup compressions ('Pending', 'Budget') explicitly overridden and all ten one-line definitions quoted.
+
+### Cross-cutting + addendum (1)
+
+- **Cross-cutting** — round-trip fidelity as the surfaced promise; zero-server/local-parsing privacy line; failure legibility (file + value + expectation); non-goals verbatim ('Not a readiness scorer / report editor / publisher / verified-answer author / cross-browser / legacy-format / Git client'); platform (Chromium 86+, secure context, desktop, no install/extension/account); report layer's single mechanical write; verified answers read-only; counts stated before bulk AI runs (cost); LSDL re-serialisation large-diff disclosure (addendum → Write-Path Safety #6); Azure OpenAI named unsupported (addendum → BYOK + Voice); OpenRouter suggested default; multi-line descriptions = N `///` lines (addendum → Grid editing); UTF-8 · CRLF surfaced in copy and footer (addendum) → EXPERIENCE Foundation, Voice & Tone, Write-Path Safety, BYOK config.
+
+## 2. DROPPED — 5 items (absent from both spines)
+
+1. **FR-4, resume re-grant** — "Resuming requests permission from a user gesture, and states which folder is being resumed." Why it matters: `requestPermission` throws outside a user gesture; without the click-bound re-grant (and the folder name in the prompt) a resumed project fails with an unactionable error — the recent-projects flow's happy path is unspecified.
+2. **FR-15, instruction line-break fidelity** — "Existing `CustomInstructions` content loads into the editor with its line breaks intact." Why it matters: the 10,000-char instruction string is stored as a `\n`-escaped JSON blob; an editor that flattens or trims line breaks on load silently rewrites the user's instruction formatting on the very first save.
+3. **FR-16, LSDL entity creation** — "A model object with no LSDL entity gains one when its first synonym is added." Why it matters: objects Power BI never surfaced in Q&A have no entity; without create-on-first-synonym, synonym authoring silently fails for exactly the objects users most want to teach Copilot.
+4. **§6.1, file-safety invariants** — "The tool never writes to a file it did not parse, and never creates files outside the selected folder." Why it matters: these are the trust contract for a tool that rewrites model files in place; Write-Path Safety implies the first half ('writes go only to changed files') but neither spine states either invariant, so no build or review criterion enforces them.
+5. **§6.2, BYOK payload boundary** — "BYOK requests carry only the metadata needed for the prompt — names, types, expressions, descriptions — and never data values, since the tool never reads them." Why it matters: it is the privacy promise that makes BYOK acceptable in enterprise settings; the spines say parsing is local and requests are direct, but never state what a request may contain.
+
+## 3. Verdict
+
+**PRD coverage is essentially complete: 47/47 qualitative checklist items landed (38/38 FRs, 4/4 UJs, all state/edge cases, the a11y floor, all four perf budgets, and the verbatim KPI label sets), 5 dropped.** The spines consistently carry PRD behavior in EXPERIENCE.md with visual contracts in DESIGN.md by reference, and they extend the PRD where the mockup under-specified it (a11y affordances, save-success copy, deferred-load indicator). The 5 drops are all one-line patches — four belong in EXPERIENCE.md (State Patterns / Grid editing / Write-Path Safety / BYOK config), one (entity creation) in Synonym chips — and none requires structural change. Deliberately out of UX-scope (not drops): parse classifications and span mechanics (FR-5/FR-22/FR-23 internals), `changedProperty` emission, TMDL quoting, prompt payloads/batching, grid-library and stack choices, fixtures, and automated correctness gates — those belong to the architecture run per the spines' own conflict rule. Recommend patching the 5 dropped lines into EXPERIENCE.md before the spines are frozen.
