@@ -24,6 +24,10 @@
 
 /* Dark overrides: same utility names resolve differently under `.dark`.
    Unlayered rule beats the @layer(theme) :root emission by cascade layers. */
+:root {
+  color-scheme: light;
+}
+
 .dark {
   --color-primary: hsl(217 91% 60%);
   --color-primary-foreground: hsl(0 0% 100%);
@@ -35,10 +39,6 @@
   /* derived: DESIGN.md pins border light only; dark keeps the slate hue */
   --color-border: hsl(217 33% 18%);
   color-scheme: dark;
-}
-
-:root {
-  color-scheme: light;
 }
 
 /* Base surface so the page never flashes unstyled/white in dark mode. */
