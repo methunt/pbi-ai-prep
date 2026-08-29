@@ -1,0 +1,48 @@
+/* Single source of design tokens (DESIGN.md palette, LOCKED).
+   Blue family only — zero violet/fuchsia/purple anywhere. */
+@import "tailwindcss";
+
+/* Class-driven dark mode (FR-36): `.dark` on <html> activates dark: utilities.
+   Never follows prefers-color-scheme. */
+@custom-variant dark (&:where(.dark, .dark *));
+/* Light (default) palette — every --color-* name below generates its
+   bg-, text-, and border- utility. */
+@theme {
+  --color-primary: hsl(221 83% 53%);
+  --color-primary-foreground: hsl(210 40% 98%);
+  --color-bg: hsl(210 40% 98%);
+  --color-card: hsl(0 0% 100%);
+  --color-foreground: hsl(222 47% 11%);
+  --color-secondary: hsl(220 14% 96%);
+  --color-muted: hsl(220 14% 96%);
+  --color-border: hsl(220 13% 91%);
+  --color-sky: hsl(199 89% 48%);
+  --color-cyan: hsl(188 94% 43%);
+  --color-emerald: hsl(160 84% 39%);
+  --color-amber: hsl(38 92% 50%);
+}
+
+/* Dark overrides: same utility names resolve differently under `.dark`.
+   Unlayered rule beats the @layer(theme) :root emission by cascade layers. */
+.dark {
+  --color-primary: hsl(217 91% 60%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-bg: hsl(222 47% 6%);
+  --color-card: hsl(222 40% 10%);
+  --color-foreground: hsl(210 40% 98%);
+  --color-secondary: hsl(217 33% 15%);
+  --color-muted: hsl(217 33% 15%);
+  /* derived: DESIGN.md pins border light only; dark keeps the slate hue */
+  --color-border: hsl(217 33% 18%);
+  color-scheme: dark;
+}
+
+:root {
+  color-scheme: light;
+}
+
+/* Base surface so the page never flashes unstyled/white in dark mode. */
+body {
+  background-color: var(--color-bg);
+  color: var(--color-foreground);
+}
