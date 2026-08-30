@@ -22,7 +22,7 @@ import ThemeToggle from './ThemeToggle'
 
 interface LandingProps {
   /** Called once a folder is opened (handle + permission settled). */
-  onOpened: () => void
+  onOpened: (handle: FileSystemDirectoryHandle, name: string) => void
 }
 
 /** Fielded feature card for the pitch column. */
@@ -101,7 +101,7 @@ export default function Landing({ onOpened }: LandingProps) {
       const perm = await requestPermission(handle)()
       setPermission(perm === 'granted' ? 'granted' : 'denied')
       await refreshRecents()
-      onOpened()
+      onOpened(handle, name)
     },
     [onOpened, refreshRecents, setPermission],
   )

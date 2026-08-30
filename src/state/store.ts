@@ -37,7 +37,7 @@ export type TabId = 'desc' | 'ai' | 'rel'
 /** Status-only layer parse state (AD-7). */
 export type ParseState = 'idle' | 'parsing' | 'ready' | 'error' | 'stale'
 
-export type LayerName = 'lsdl' | 'report' | 'lineage'
+export type LayerName = 'lsdl' | 'report' | 'lineage' | 'objects'
 
 export interface LayerState {
   parseState: ParseState
@@ -169,6 +169,7 @@ const INITIAL_LAYERS: LayerMap = {
   lsdl: { parseState: 'idle' },
   report: { parseState: 'idle' },
   lineage: { parseState: 'idle' },
+  objects: { parseState: 'idle' },
 }
 const INITIAL_KPI: Kpi = {
   total: 0,

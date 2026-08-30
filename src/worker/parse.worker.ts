@@ -19,14 +19,16 @@
 
 import { parseLSDL } from '../parse/lsdl-reader'
 import { parseReport } from '../parse/pbir-reader'
+import { parseTmdlProject } from '../parse/tmdl-reader'
 import type { Edge } from '../domain/graph'
 import type { ModelObject } from '../domain/objects'
 
 /** Incoming request — structurally mirrors the broker's WorkerRequest. */
 interface WorkerRequest {
-  layer: 'lsdl' | 'report' | 'lineage'
+  layer: 'lsdl' | 'report' | 'lineage' | 'objects'
   cultureText?: string
   reportFiles?: Map<string, string> | null
+  files?: Map<string, string> | null
   objects: ModelObject[]
 }
 
@@ -59,6 +61,8 @@ function dispatch(request: WorkerRequest): unknown {
       return parseReport(request.reportFiles ?? null, request.objects)
     case 'lineage':
       return parseLineage(request.reportFiles ?? null, request.objects)
+    case 'objects':
+      return parseTmdlProject(request.files ?? new Map())
     default: {
       // Exhaustive given the union; defensive for any future layer value.
       const never: never = request.layer

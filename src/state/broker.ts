@@ -17,8 +17,9 @@
 // broker against a FAKE worker (a plain {postMessage, onmessage} object),
 // which is how the broker's idempotency + state transitions are verified.
 
-import { useStore, type LayerName } from './store'
-import type { ModelObject } from '../domain/objects'
+import { useStore, type LayerName, type FileRecord } from './store'
+import type { ModelObject, SourceSpans } from '../domain/objects'
+import type { TmdlParseResult } from '../parse/tmdl-reader'
 
 /** Per-layer inputs the broker forwards to the worker. */
 export interface LayerFiles {
@@ -26,12 +27,16 @@ export interface LayerFiles {
   cultureText?: string
   /** Report file map, project-relative path → text (the `report`/`lineage` layers). */
   reportFiles?: Map<string, string> | null
+  /** Raw text map, project-relative path → text (the `objects` layer). */
+  files?: Map<string, string> | null
 }
 
 export interface LayerDeps {
   layerFiles: LayerFiles
   /** Pristine model objects the worker's resolver indexes (AD-6). */
   objects: ModelObject[]
+  /** Project name the `objects` layer commits into `setProject`. */
+  projectName?: string
   /** Test injection point; default constructs the real Web Worker. */
   workerFactory?: WorkerFactory
 }
@@ -50,6 +55,7 @@ export interface WorkerRequest {
   layer: LayerName
   cultureText?: string
   reportFiles?: Map<string, string> | null
+  files?: Map<string, string> | null
   objects: ModelObject[]
 }
 
@@ -92,12 +98,49 @@ export function requestLayer(layer: LayerName, deps: LayerDeps): Promise<unknown
   )
   return promise
 }
-
 function buildRequest(layer: LayerName, deps: LayerDeps): WorkerRequest {
   const request: WorkerRequest = { layer, objects: deps.objects }
   if (layer === 'lsdl') request.cultureText = deps.layerFiles.cultureText ?? ''
-  else request.reportFiles = deps.layerFiles.reportFiles ?? null
+  else if (layer === 'report' || layer === 'lineage') request.reportFiles = deps.layerFiles.reportFiles ?? null
+  else if (layer === 'objects') request.files = deps.layerFiles.files ?? new Map()
   return request
+}
+
+/** The `objects` layer's worker result is a plain parse of the semantic model
+ * TMDL files. Commit it via `setProject` so the grid/lineage/prep read the
+ * folded model — this is the ONLY production commit path (AD-7: the broker,
+ * in state/, is the sole committer). The project slice holds the objects,
+ * the original file texts, and the per-file spans the readers recorded. */
+function commitObjects(layer: LayerName, data: unknown, deps: LayerDeps): void {
+  if (layer !== 'objects') return
+  const result = data as TmdlParseResult
+  const store = useStore.getState()
+
+  const files: Record<string, FileRecord> = {}
+  for (const [path, text] of deps.layerFiles.files ?? new Map<string, string>()) {
+    files[path] = { text, spans: {} }
+  }
+  // Group the readers' per-object source spans into each file's record so the
+  // original-texts + spans slice is faithful (AD-3). ModelObject spans are
+  // recorded by the parser; nothing recomputes them here.
+  const spansByFile: Record<string, Record<string, SourceSpans>> = {}
+  for (const o of result.objects) {
+    const rec: SourceSpans = { declaration: o.declarationSpan, name: o.nameSpan }
+    if (o.docCommentSpan !== undefined) rec.docComment = o.docCommentSpan
+    const bucket = spansByFile[o.file] ?? (spansByFile[o.file] = {})
+    bucket[o.id] = rec
+  }
+  for (const file of Object.keys(files)) {
+    const spans = spansByFile[file]
+    if (spans !== undefined) files[file] = { text: files[file].text, spans }
+  }
+
+  store.setProject({
+    objects: result.objects,
+    files,
+    name: deps.projectName ?? '',
+    edges: result.edges,
+  })
 }
 
 async function runParse(layer: LayerName, deps: LayerDeps): Promise<unknown> {
@@ -121,6 +164,9 @@ async function runParse(layer: LayerName, deps: LayerDeps): Promise<unknown> {
       worker.postMessage(buildRequest(layer, deps))
     })
 
+    // The `objects` layer's ready result IS the loaded project — commit it via
+    // setProject so the grid/lineage/prep read the folded model (AD-7).
+    commitObjects(layer, data, deps)
     useStore.getState().setLayerState(layer, { parseState: 'ready', data })
     return data
   } catch (err) {

@@ -22,6 +22,7 @@ import ObjectGrid from './grid/ObjectGrid'
 import PrepForAi from './prep/PrepForAi'
 import LineageCanvas from './lineage/LineageCanvas'
 import { useStore, type Kpi, type TabId } from '../state/store'
+import { loadProject } from '../fs/load'
 
 const TAB_IDS: TabId[] = ['desc', 'ai', 'rel']
 
@@ -292,6 +293,7 @@ export default function App() {
   const activeTab = useStore((s) => s.activeTab)
   const setActiveTab = useStore((s) => s.setActiveTab)
   const [phase, setPhase] = useState<'landing' | 'parse'>('landing')
+  const [loadError, setLoadError] = useState<string | null>(null)
   const tabRefs = useRef<Record<TabId, HTMLButtonElement | null>>({
     desc: null,
     ai: null,
@@ -308,7 +310,22 @@ export default function App() {
     if (hasProject && phase === 'parse') setPhase('landing')
   }, [hasProject, phase])
 
-  const openFolder = () => setPhase('parse')
+  const openFolder = async (handle: FileSystemDirectoryHandle, name: string) => {
+    setPhase('parse')
+    setLoadError(null)
+    try {
+      // Walk the picked PBIP tree and request the workerized `objects` parse.
+      // The broker commits the parsed project via setProject (AD-7); the grid
+      // renders once the store has it. The parse itself runs OFF the main thread
+      // (FR-8) and any per-file errors still load the remaining files (FR-5).
+      await loadProject(handle, name)
+    } catch (err) {
+      // FR-2 rejection (no semantic model) or a hard worker failure — surface a
+      // readable error and return to the landing.
+      setLoadError(err instanceof Error ? err.message : String(err))
+      setPhase('landing')
+    }
+  }
 
   let body
   if (hasProject) {
@@ -321,6 +338,23 @@ export default function App() {
         setActiveTab={setActiveTab}
         tabRefs={tabRefs}
       />
+    )
+  } else if (loadError) {
+    body = (
+      <div className="mesh flex h-full w-full items-center justify-center p-6">
+        <div className="card elev-lg w-full max-w-[420px] p-7 text-center">
+          <TriangleAlert
+            className="mx-auto mb-3 h-6 w-6 text-amber"
+            strokeWidth={2.4}
+            aria-hidden="true"
+          />
+          <div className="mb-1 text-[15px] font-bold">Could not open this folder</div>
+          <div className="mb-4 text-[12.5px] leading-snug text-foreground/60">{loadError}</div>
+          <button type="button" className="btn btn-primary" onClick={() => setLoadError(null)}>
+            Back to Open
+          </button>
+        </div>
+      </div>
     )
   } else if (phase === 'parse' || layersActive) {
     body = <ParseStepper />
