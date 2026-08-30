@@ -414,14 +414,27 @@ body {
       minmax(150px, 1.8fr);
     min-width: 1026px;
   }
-  /* The whole header row sticks inside the scroll container (mockup thead). */
-  .grid-head {
-    position: sticky;
-    top: 0;
-    z-index: 5;
-    background-color: var(--color-card);
-  }
-  .grid-head-cell[data-sort] {
+     /* The whole header row sticks inside the scroll container (mockup thead). */
+   .grid-head {
+     position: sticky;
+     top: 0;
+     z-index: 5;
+     background-color: var(--color-card);
+   }
+   .grid-head-cell {
+     display: flex;
+     align-items: center;
+     gap: 6px;
+     padding: 0 14px;
+     height: 34px;
+     font-size: 10.5px;
+     font-weight: 600;
+     text-transform: uppercase;
+     letter-spacing: 0.02em;
+     color: color-mix(in srgb, var(--color-foreground) 60%, transparent);
+     min-width: 0;
+   }
+   .grid-head-cell[data-sort] {
     cursor: pointer;
     user-select: none;
   }
