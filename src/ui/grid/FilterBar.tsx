@@ -2,7 +2,7 @@
 // table dropdowns, free-text search, and "select all matching". Every change
 // routes through `onFilter`, which the store handles by resetting to page 1.
 import type { ChangeEvent } from 'react'
-import { Search } from 'lucide-react'
+import { ChevronDown, Search } from 'lucide-react'
 import type { Filters } from '../../state/store'
 import type { ObjectType } from '../../domain/objects'
 
@@ -12,7 +12,6 @@ export interface FilterBarProps {
   tables: string[]
   counts: { all: number; empty: number; unused: number }
   matchCount: number
-  selectedCount: number
   allMatch: boolean
   someMatch: boolean
   readOnly: boolean
@@ -28,7 +27,6 @@ export default function FilterBar({
   tables,
   counts,
   matchCount,
-  selectedCount,
   allMatch,
   someMatch,
   readOnly,
@@ -77,37 +75,43 @@ export default function FilterBar({
         <span className="mono">{counts.empty.toLocaleString()}</span>
       </button>
       <button type="button" className={chipCls('unused')} onClick={() => setChip('unused')}>
-        <span className="h-1.5 w-1.5 rounded-full bg-sky" aria-hidden="true" /> Unused{' '}
+        <span className="h-1.5 w-1.5 rounded-full bg-destructive" aria-hidden="true" /> Unused{' '}
         <span className="mono">{counts.unused.toLocaleString()}</span>
       </button>
 
-      <select
-        className="field w-auto !py-1.5 !text-[12px]"
-        value={filters.type ?? ''}
-        aria-label="Filter by object type"
-        onChange={onType}
-      >
-        <option value="">All types</option>
-        {objectTypes.map((t) => (
-          <option key={t.value} value={t.value}>
-            {t.label}
-          </option>
-        ))}
-      </select>
+      <label className="chip" title="Filter by object type">
+        <select
+          className="cursor-pointer appearance-none bg-transparent p-0 text-[12px] text-inherit"
+          value={filters.type ?? ''}
+          aria-label="Filter by object type"
+          onChange={onType}
+        >
+          <option value="">All types</option>
+          {objectTypes.map((t) => (
+            <option key={t.value} value={t.value}>
+              {t.label}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none h-3 w-3 opacity-60" aria-hidden="true" />
+      </label>
 
-      <select
-        className="field w-auto !py-1.5 !text-[12px]"
-        value={filters.table ?? ''}
-        aria-label="Filter by table"
-        onChange={onTable}
-      >
-        <option value="">All tables</option>
-        {tables.map((t) => (
-          <option key={t} value={t}>
-            {t}
-          </option>
-        ))}
-      </select>
+      <label className="chip" title="Filter by table">
+        <select
+          className="cursor-pointer appearance-none bg-transparent p-0 text-[12px] text-inherit"
+          value={filters.table ?? ''}
+          aria-label="Filter by table"
+          onChange={onTable}
+        >
+          <option value="">All tables</option>
+          {tables.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none h-3 w-3 opacity-60" aria-hidden="true" />
+      </label>
 
       <label className="ml-auto flex cursor-pointer select-none items-center gap-2 text-[11.5px] text-foreground/55">
         <input
@@ -120,9 +124,6 @@ export default function FilterBar({
         <span className={someMatch ? 'text-foreground/70' : ''}>
           Select all <span className="mono tabular">{matchCount.toLocaleString()}</span> matching
         </span>
-        {selectedCount > 0 && (
-          <span className="mono tabular text-foreground/70">· {selectedCount} selected</span>
-        )}
       </label>
 
       {readOnly && (

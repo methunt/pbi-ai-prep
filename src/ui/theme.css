@@ -405,14 +405,14 @@ body {
     display: grid;
     grid-template-columns:
       40px 40px
-      minmax(110px, 150px)
-      minmax(130px, 180px)
-      minmax(120px, 1.3fr)
-      200px
+      minmax(90px, 0.8fr)
+      minmax(110px, 1fr)
+      minmax(140px, 1.5fr)
+      160px
       96px
-      minmax(220px, 2.4fr)
-      minmax(180px, 2fr);
-    min-width: 1080px;
+      minmax(200px, 2.4fr)
+      minmax(150px, 1.8fr);
+    min-width: 1026px;
   }
   /* The whole header row sticks inside the scroll container (mockup thead). */
   .grid-head {
@@ -439,7 +439,6 @@ body {
     opacity: 0.75;
     margin-left: 2px;
   }
-
   .grid-cell {
     display: flex;
     align-items: center;
@@ -449,6 +448,19 @@ body {
     border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
     font-size: 13px;
     min-width: 0;
+  }
+
+  /* Wrapped, clamped description text (FR-11): a comfortable, full-width click
+     target that shows more than one truncated line while keeping the 42px
+     virtualised row height (frame budget ≤16ms). */
+  .desc-text {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    text-align: left;
+    line-height: 1.35;
+    word-break: break-word;
   }
   .grid-row { transition: background-color 110ms ease; }
   .grid-row:hover { background: color-mix(in srgb, var(--color-primary) 3.5%, transparent); }

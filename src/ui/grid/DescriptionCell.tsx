@@ -58,7 +58,7 @@ export default function DescriptionCell({
   if (readOnly) {
     return (
       <div role="gridcell" data-col="desc" className={`grid-cell${isChanged ? ' cell-changed' : ''} opacity-60`} title="Write access denied — read-only">
-        <span className={`truncate ${value ? '' : 'italic text-amber'}`} aria-disabled="true">
+        <span className={`desc-text min-w-0 flex-1 ${value ? '' : 'italic text-amber'}`} aria-disabled="true">
           {display}
         </span>
       </div>
@@ -117,7 +117,7 @@ export default function DescriptionCell({
     <div role="gridcell" data-col="desc" className={`grid-cell${isChanged ? ' cell-changed' : ''}`}>
       <button
         type="button"
-        className={`truncate text-left ${value ? '' : 'italic text-amber'}`}
+        className={`desc-text min-w-0 flex-1 ${value ? '' : 'italic text-amber'}`}
         aria-label={
           value
             ? `Edit description: ${collapseLines(value)}`

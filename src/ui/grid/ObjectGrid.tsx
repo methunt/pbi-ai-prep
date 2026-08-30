@@ -261,14 +261,13 @@ export default function ObjectGrid() {
   )
 
   return (
-    <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+    <div className="flex min-h-0 flex-1 flex-col">
       <FilterBar
         filters={filters}
         objectTypes={objectTypes}
         tables={tables}
         counts={counts}
         matchCount={matchCount}
-        selectedCount={selectedIds.length}
         allMatch={allMatch}
         someMatch={someMatch}
         readOnly={readOnly}
@@ -278,6 +277,7 @@ export default function ObjectGrid() {
 
       <SelectionContext />
 
+      <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-auto"
@@ -287,7 +287,7 @@ export default function ObjectGrid() {
         aria-label="Model objects"
         onKeyDown={onGridKeyDown}
       >
-        <div className="min-w-[1080px]">
+        <div className="min-w-[1026px]">
           <Heading sort={filters.sort} onSort={onSort} />
           <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
             {virtualItems.map((vi) => {
@@ -342,6 +342,7 @@ export default function ObjectGrid() {
           total={matchCount}
           onPageChange={setPage}
         />
+      </div>
       </div>
     </div>
   )
