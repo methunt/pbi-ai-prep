@@ -31,6 +31,9 @@ import { buildGraph, type Edge, type ObjectGraph } from '../domain/graph'
 /** Whether the current folder permission allows writes (FR-34). */
 export type Permission = 'granted' | 'denied' | 'prompt' | 'unknown'
 
+/** The app's top-level surface tabs (AD-11 tablist; the Relationships tab hosts the lineage canvas). */
+export type TabId = 'desc' | 'ai' | 'rel'
+
 /** Status-only layer parse state (AD-7). */
 export type ParseState = 'idle' | 'parsing' | 'ready' | 'error' | 'stale'
 
@@ -55,6 +58,9 @@ export interface ProjectResult {
   objects: ModelObject[]
   files: Record<string, FileRecord>
   name: string
+  /** The edges the graph was built from (AD-6) — retained so the lineage canvas can
+   *  render table-level relationship/dependency edges without re-deriving the graph. */
+  edges: readonly Edge[]
 }
 
 export interface SortSpec {
@@ -126,6 +132,26 @@ export interface StoreState {
   /** Idempotent: re-applying the same parseState without new data is a no-op. */
   setLayerState(layer: LayerName, state: LayerState): void
   setPermission(permission: Permission): void
+  /** The active top-level tab (AD-11 tablist). Owned here so the grid and the
+   *  lineage canvas can drive each other's surface (FR-21 round-trip). */
+  activeTab: TabId
+  /** The object currently focused/inspected on the lineage canvas (FR-20 isolation). */
+  lineageFocusId: string | null
+  /** Bumped on every focus request so re-centring fires even for the same id. */
+  lineageFocusNonce: number
+  /** The object the grid should scroll/highlight after a canvas→grid round-trip (FR-21). */
+  gridFocusId: string | null
+  /** Bumped on every grid-focus request so the scroll/flash fires even for the same id. */
+  gridFocusNonce: number
+
+  /** Switch the active surface tab. */
+  setActiveTab(tab: TabId): void
+  /** Grid→canvas round-trip (FR-21): focus `id` on the lineage canvas and open the tab. */
+  openOnCanvas(id: string): void
+  /** Canvas-internal refocus (FR-20): centre the canvas on `id` without leaving the tab. */
+  focusLineage(id: string): void
+  /** Canvas→grid round-trip (FR-21): open the grid narrowed/scrolled to `id`. */
+  editOnGrid(id: string): void
 }
 
 const EMPTY_FILES: Record<string, FileRecord> = {}
@@ -303,7 +329,7 @@ export const useStore = create<StoreState>()((set, get) => {
   }
 
   return {
-    project: { objectsById: {}, objects: [], files: EMPTY_FILES, name: '' },
+    project: { objectsById: {}, objects: [], files: EMPTY_FILES, name: '', edges: [] },
     journal: [],
     selectedIds: [],
     filters: INITIAL_FILTERS,
@@ -312,6 +338,11 @@ export const useStore = create<StoreState>()((set, get) => {
     permission: 'unknown',
     pristine: [],
     graph: buildGraph([]),
+    activeTab: 'desc',
+    lineageFocusId: null,
+    lineageFocusNonce: 0,
+    gridFocusId: null,
+    gridFocusNonce: 0,
 
     setProject({ objects, files, name, edges = [] }) {
       const graph = buildGraph(objects, edges)
@@ -319,7 +350,13 @@ export const useStore = create<StoreState>()((set, get) => {
         pristine: objects,
         graph,
         journal: [],
-        project: { objectsById: indexObjects(objects), objects, files, name },
+        project: {
+          objectsById: indexObjects(objects),
+          objects,
+          files,
+          name,
+          edges: [...edges],
+        },
         kpi: computeKpi(objects, graph, []),
       })
     },
@@ -388,6 +425,51 @@ export const useStore = create<StoreState>()((set, get) => {
 
     setPermission(permission) {
       set({ permission })
+    },
+
+    setActiveTab(tab) {
+      set({ activeTab: tab })
+    },
+
+    openOnCanvas(id) {
+      set((s) => ({
+        activeTab: 'rel',
+        lineageFocusId: id,
+        lineageFocusNonce: s.lineageFocusNonce + 1,
+      }))
+    },
+
+    focusLineage(id) {
+      set((s) => ({
+        lineageFocusId: id,
+        lineageFocusNonce: s.lineageFocusNonce + 1,
+      }))
+    },
+
+    editOnGrid(id) {
+      const obj = get().project.objectsById[id]
+      if (!obj) return
+      // Narrow the grid to the object's table (or, for a table/group object, its
+      // type) so the row is in the filtered view, then scroll/highlight it.
+      const isTableLike =
+        obj.type === 'table' ||
+        obj.type === 'calculationGroup' ||
+        obj.type === 'fieldParameter'
+      set((s) => ({
+        activeTab: 'desc',
+        filters: {
+          query: '',
+          type: isTableLike ? obj.type : null,
+          table: isTableLike ? null : obj.table || null,
+          noDescription: false,
+          unused: false,
+          sort: s.filters.sort,
+          page: 1,
+          pageSize: s.filters.pageSize,
+        },
+        gridFocusId: id,
+        gridFocusNonce: s.gridFocusNonce + 1,
+      }))
     },
   }
 })

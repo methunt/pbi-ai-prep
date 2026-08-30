@@ -221,3 +221,72 @@ describe('permission', () => {
     expect(useStore.getState().permission).toBe('granted')
   })
 })
+
+describe('tab + lineage/grid round-trip (FR-21)', () => {
+  it('setActiveTab switches the active surface tab', () => {
+    expect(useStore.getState().activeTab).toBe('desc')
+    useStore.getState().setActiveTab('rel')
+    expect(useStore.getState().activeTab).toBe('rel')
+  })
+
+  it('openOnCanvas focuses the object and opens the rel tab', () => {
+    const nonce0 = useStore.getState().lineageFocusNonce
+    useStore.getState().openOnCanvas('c1')
+    const s = useStore.getState()
+    expect(s.activeTab).toBe('rel')
+    expect(s.lineageFocusId).toBe('c1')
+    expect(s.lineageFocusNonce).toBe(nonce0 + 1)
+  })
+
+  it('focusLineage refocuses without changing the tab', () => {
+    useStore.getState().setActiveTab('rel')
+    const nonce0 = useStore.getState().lineageFocusNonce
+    useStore.getState().focusLineage('m1')
+    const s = useStore.getState()
+    expect(s.activeTab).toBe('rel')
+    expect(s.lineageFocusId).toBe('m1')
+    expect(s.lineageFocusNonce).toBe(nonce0 + 1)
+  })
+
+  it('editOnGrid for a column narrows the grid to its table and focuses it', () => {
+    const nonce0 = useStore.getState().gridFocusNonce
+    useStore.getState().editOnGrid('c1')
+    const s = useStore.getState()
+    expect(s.activeTab).toBe('desc')
+    expect(s.filters.table).toBe('Sales')
+    expect(s.filters.type).toBeNull()
+    expect(s.gridFocusId).toBe('c1')
+    expect(s.gridFocusNonce).toBe(nonce0 + 1)
+  })
+
+  it('editOnGrid for a table object narrows the grid to its type', () => {
+    useStore.setState((s) => ({
+      ...s,
+      project: { ...s.project, objectsById: { ...s.project.objectsById, tbl: { ...s.project.objectsById.c1, id: 'tbl', type: 'table', name: 'Sales', table: '' } } },
+    }))
+    useStore.getState().editOnGrid('tbl')
+    const s = useStore.getState()
+    expect(s.activeTab).toBe('desc')
+    expect(s.filters.type).toBe('table')
+    expect(s.filters.table).toBeNull()
+    expect(s.gridFocusId).toBe('tbl')
+  })
+
+  it('editOnGrid for an unknown id is a no-op', () => {
+    const before = useStore.getState().activeTab
+    useStore.getState().editOnGrid('does-not-exist')
+    expect(useStore.getState().activeTab).toBe(before)
+    expect(useStore.getState().gridFocusId).toBeNull()
+  })
+
+  it('setProject retains edges in the project slice for the canvas', () => {
+    useStore.setState(useStore.getInitialState())
+    useStore.getState().setProject({
+      objects: [makeColumn('c1', 'Amount')],
+      files: { [FILE]: { text: 'x', spans: {} } },
+      name: 'demo',
+      edges: [{ from: 'm1', to: 'c1', kind: 'measure' }],
+    })
+    expect(useStore.getState().project.edges).toEqual([{ from: 'm1', to: 'c1', kind: 'measure' }])
+  })
+})

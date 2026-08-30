@@ -32,6 +32,10 @@ export interface GridRowProps {
   onNavigate: (dir: NavDir) => void
   onToggleSelect: (id: string) => void
   onRowClick: (e: MouseEvent<HTMLDivElement>, rowIndex: number) => void
+  /** FR-21: 'View on canvas' — focus this object on the lineage canvas and open the tab. */
+  onOpenLineage: (id: string) => void
+  /** FR-21: momentarily highlight the row after a canvas→grid round-trip. */
+  flash: boolean
 }
 
 function GridRow({
@@ -50,6 +54,8 @@ function GridRow({
   onNavigate,
   onToggleSelect,
   onRowClick,
+  onOpenLineage,
+  flash,
 }: GridRowProps) {
   const meta = TYPE_META[obj.type]
   const dax =
@@ -59,7 +65,7 @@ function GridRow({
     <div
       role="row"
       data-row={rowIndex}
-      className={`grid-row${selected ? ' selected' : ''}${obj.hidden ? ' hidden' : ''}`}
+      className={`grid-row${selected ? ' selected' : ''}${obj.hidden ? ' hidden' : ''}${flash ? ' grid-row-flash' : ''}`}
       onClick={(e) => onRowClick(e, rowIndex)}
     >
       <div role="gridcell" data-col="checkbox" className="grid-cell justify-center">
@@ -79,8 +85,10 @@ function GridRow({
           className="hov btn btn-ghost !p-1"
           title="Open in Lineage"
           aria-label={`Open ${displayName} in Lineage`}
-          disabled
-          onClick={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation()
+            onOpenLineage(obj.id)
+          }}
         >
           <Network className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
         </button>

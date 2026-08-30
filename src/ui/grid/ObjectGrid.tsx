@@ -7,7 +7,7 @@
 //
 // Mutation footprint (AD-4): description / rename edits stage through
 // journalAdd only; nothing here mutates a ModelObject. Read-only
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useStore, deriveVisibleObjects } from '../../state/store'
@@ -40,6 +40,10 @@ export default function ObjectGrid() {
   const shiftSelectRange = useStore((s) => s.shiftSelectRange)
   const selectAllMatching = useStore((s) => s.selectAllMatching)
   const pristine = useStore((s) => s.pristine)
+  const gridFocusId = useStore((s) => s.gridFocusId)
+  const gridFocusNonce = useStore((s) => s.gridFocusNonce)
+  const openOnCanvas = useStore((s) => s.openOnCanvas)
+  const [flashId, setFlashId] = useState<string | null>(null)
 
   const readOnly = permission !== 'granted'
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -68,7 +72,6 @@ export default function ObjectGrid() {
   pristineByIdRef.current = pristineById
   const journalRef = useRef(journal)
   journalRef.current = journal
-
   const virtualizer = useVirtualizer({
     count: pageRows.length,
     getScrollElement: () => scrollRef.current,
@@ -76,6 +79,25 @@ export default function ObjectGrid() {
     overscan: 12,
   })
   const virtualItems = virtualizer.getVirtualItems()
+
+  // FR-21 canvas→grid round-trip: scroll the focused object into view and flash
+  // its row. Page to the page that holds it, then scroll within that page.
+  useEffect(() => {
+    if (!gridFocusId) return
+    const idx = derived.findIndex((o) => o.id === gridFocusId)
+    if (idx === -1) return
+    const targetPage = Math.floor(idx / pageSize) + 1
+    if (filters.page !== targetPage) setPage(targetPage)
+    setFlashId(gridFocusId)
+    const within = idx - (targetPage - 1) * pageSize
+    const scrollTimer = window.setTimeout(() => virtualizer.scrollToIndex(within), 0)
+    const flashTimer = window.setTimeout(() => setFlashId(null), 1600)
+    return () => {
+      clearTimeout(scrollTimer)
+      clearTimeout(flashTimer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gridFocusId, gridFocusNonce])
 
   const counts = useMemo(() => {
     let all = 0
@@ -298,6 +320,8 @@ export default function ObjectGrid() {
                     onNavigate={onNavigate}
                     onToggleSelect={toggleSelect}
                     onRowClick={handleRowClick}
+                    onOpenLineage={openOnCanvas}
+                    flash={flashId === obj.id}
                   />
                 </div>
               )

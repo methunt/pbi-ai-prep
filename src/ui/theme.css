@@ -387,11 +387,30 @@ body,
   }
   .grid-row { transition: background-color 110ms ease; }
   .grid-row:hover { background: color-mix(in srgb, var(--color-primary) 3.5%, transparent); }
-  .grid-row.selected { background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
-  .grid-row.hidden { opacity: 0.55; }
-  .grid-row:hover .hov { opacity: 1; }
-  .grid-row:focus-visible { outline-offset: -2px; }
-  .hov { opacity: 0; transition: opacity 120ms ease; }
+  /* ---------- lineage canvas (Task 7.5, mockup `.node`) ---------- */
+  .lnode {
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    font-size: 12px;
+    transition: box-shadow 130ms ease, border-color 130ms ease, opacity 130ms ease;
+  }
+  .lnode.hot {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 12%, transparent);
+  }
+  .lnode.dim { opacity: 0.32; }
+  /* dotted graph backdrop (mockup `.dots`) */
+  .lnode-dots {
+    background-image: radial-gradient(circle, color-mix(in srgb, var(--color-primary) 13%, transparent) 1px, transparent 1px);
+    background-size: 22px 22px;
+  }
+  /* flash a freshly focused grid row (FR-21 canvas→grid round-trip) */
+  .grid-row-flash { animation: flashRow 1400ms ease both; }
+  @keyframes flashRow {
+    0% { background: color-mix(in srgb, var(--color-primary) 18%, transparent); }
+    100% { background: transparent; }
+  }
 
   .type-cell {
     display: inline-flex;

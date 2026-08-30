@@ -20,9 +20,8 @@ import ThemeToggle from './chrome/ThemeToggle'
 import KpiCard, { type KpiTone } from './chrome/KpiCard'
 import ObjectGrid from './grid/ObjectGrid'
 import PrepForAi from './prep/PrepForAi'
-import { useStore, type Kpi } from '../state/store'
-
-type TabId = 'desc' | 'ai' | 'rel'
+import LineageCanvas from './lineage/LineageCanvas'
+import { useStore, type Kpi, type TabId } from '../state/store'
 
 const TAB_IDS: TabId[] = ['desc', 'ai', 'rel']
 
@@ -263,15 +262,7 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
           hidden={activeTab !== 'rel'}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-8 text-center">
-            <div className="mb-1 text-[13px] font-semibold text-foreground/70">
-              Relationships lands in step 7.5
-            </div>
-            <div className="max-w-[46ch] text-[12px] text-foreground/55">
-              The column-level lineage graph, focus inspector and upstream/downstream reads render
-              here.
-            </div>
-          </div>
+          <LineageCanvas />
         </section>
       </main>
 
@@ -296,7 +287,8 @@ export default function App() {
   const permission = useStore((s) => s.permission)
   const layers = useStore((s) => s.layers)
 
-  const [activeTab, setActiveTab] = useState<TabId>('desc')
+  const activeTab = useStore((s) => s.activeTab)
+  const setActiveTab = useStore((s) => s.setActiveTab)
   const [phase, setPhase] = useState<'landing' | 'parse'>('landing')
   const tabRefs = useRef<Record<TabId, HTMLButtonElement | null>>({
     desc: null,
