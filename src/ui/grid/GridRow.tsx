@@ -12,6 +12,7 @@ import { TYPE_META } from './typeMeta'
 import DescriptionCell, { type NavDir } from './DescriptionCell'
 import RenameCell from './RenameCell'
 import UsedCell from './UsedCell'
+import Tooltip from './Tooltip'
 
 export interface GridRowProps {
   obj: ModelObject
@@ -132,10 +133,13 @@ function GridRow({
 
       <div role="gridcell" data-col="dax" className="grid-cell mono text-[11.5px] text-foreground/55">
         {dax ? (
-          <span className="tip tip-dax">
+          <Tooltip
+            className="min-w-0 flex-1"
+            contentClassName="max-w-[560px] max-h-[360px] overflow-auto whitespace-pre-wrap px-3 py-2.5 text-left text-[11px] leading-relaxed"
+            content={dax}
+          >
             <span className="truncate cursor-help">{dax}</span>
-            <span className="tip-body dax-tip">{dax}</span>
-          </span>
+          </Tooltip>
         ) : (
           <span>—</span>
         )}

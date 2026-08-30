@@ -3,6 +3,7 @@
 // grey and 6+ is grey-strong (inverted emphasis, per the mockup).
 import type { Usage } from '../../domain/graph'
 import { usedClass, usedTooltip } from './cellUtils'
+import Tooltip from './Tooltip'
 
 export interface UsedCellProps {
   usage: Usage
@@ -14,15 +15,11 @@ export default function UsedCell({ usage, total }: UsedCellProps) {
   const cls = usedClass(total)
   const label = total === 0 ? 'Unused' : `Used ${total}`
   return (
-    <span className="tip">
+    <Tooltip
+      content={usedTooltip(usage, total)}
+      contentClassName="whitespace-pre-line px-3 py-2 text-[11.5px] leading-relaxed"
+    >
       <span className={`pill pill-flat ${cls} mono tabular`}>{label}</span>
-      <span
-        className="tip-body"
-        style={{ whiteSpace: 'pre-line' }}
-        role="tooltip"
-      >
-        {usedTooltip(usage, total)}
-      </span>
-    </span>
+    </Tooltip>
   )
 }

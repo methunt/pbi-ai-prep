@@ -23,9 +23,9 @@
   /* Destructive red (FR-31/FR-33) — the ONLY red in the palette; used for the
      Delete action and name-collision warnings. Not violet/purple. */
   --color-destructive: hsl(0 84% 60%);
-  /* Popover / tooltip surface — the dark "lifted" panel that pops over the
-     grid (mockup `.tip-body`). Dark override resolves to a lighter slate so
-     the tooltip stays readable over the dark surface. */
+  /* Popover surface — the dark "lifted" panel behind the modal scrim.
+     Dark override resolves to a lighter slate so it stays readable over the
+     dark background. */
   --color-popover: hsl(222 47% 11%);
 }
 
@@ -430,13 +430,12 @@ body {
    .grid-head {
      position: sticky;
      top: 0;
-     /* Must beat .tip-body's z-index (60): a row that has scrolled to sit
-        partially BEHIND the sticky header can still have its tooltip's
-        computed position fall within the header's on-screen band (the
-        tooltip offset is relative to the row's own — possibly hidden —
-        box, not the visible viewport). The header must always win that
-        stacking fight so a tooltip never paints over the column labels. */
-     z-index: 70;
+     /* Row-level content (pills, buttons) must never paint over the sticky
+        header. Cell tooltips are now portaled to document.body at z-[100]
+        (Tooltip.tsx) specifically so they are NEVER clipped by this stacking
+        context or the scroll container's overflow — this z-index only needs
+        to beat ordinary row content, not tooltips. */
+     z-index: 20;
      background-color: var(--color-card);
    }
    .grid-head-cell {
@@ -588,66 +587,6 @@ body {
   .pgbtn:disabled { opacity: 0.35; cursor: not-allowed; }
   .pgdots { padding: 0 4px; color: color-mix(in srgb, var(--color-foreground) 55%, transparent); font-size: 12px; }
 
-  /* ---------- tooltip ---------- */
-  .tip { position: relative; display: inline-flex; }
-  .tip-body {
-    position: absolute;
-    /* Opens DOWNWARD, not upward: an upward tooltip has no clearance for
-       rows near the top of the scrolled grid and renders on top of the
-       sticky header (z-index 60 > header's 5) — that was the recurring
-       "values overlap the header on hover" bug across every tipped column,
-       not just DAX. */
-    top: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    background: var(--color-popover);
-    color: var(--color-primary-foreground);
-    border-radius: 8px;
-    padding: 9px 11px;
-    font-size: 11.5px;
-    line-height: 1.5;
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 120ms ease;
-    z-index: 60;
-    box-shadow: 0 8px 20px -6px hsl(0 0% 0% / 0.35);
-  }
-  .tip-body::after {
-    content: '';
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    border: 5px solid transparent;
-    border-bottom-color: var(--color-popover);
-  }
-  .tip:hover .tip-body { opacity: 1; }
-  .tip:focus-within .tip-body { opacity: 1; }
-  .dax-tip {
-    /* Right-anchored, opens BELOW the trigger (mockup: `!left-auto !right-0
-       !translate-x-0`) — the DAX column sits at the far right/bottom of a
-       row, so an upward centered tooltip has nowhere to go but under the
-       sticky header, which is the "overlaps the header" bug. */
-    top: calc(100% + 8px);
-    bottom: auto;
-    left: auto;
-    right: 0;
-    transform: none;
-    white-space: pre-wrap !important;
-    text-align: left;
-    font-size: 11px;
-    line-height: 1.65;
-    max-width: 520px;
-    min-width: 300px;
-    max-height: 320px;
-    overflow: auto;
-    pointer-events: auto;
-    tab-size: 2;
-  }
-  .dax-tip::after {
-    display: none;
-  }
 
   /* ---------- modal (mockup .scrim / .fade-up; AD-11 focus) ---------- */
   .scrim {
