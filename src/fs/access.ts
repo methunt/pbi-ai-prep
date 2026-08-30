@@ -347,18 +347,32 @@ export async function writeFileAtomic(
 
 /**
  * FR-25 external-change detection: whether the on-disk file at `posixPath`
- * differs from the parse snapshot. `expectedBytes` is the byte length the
- * reader recorded at parse time; a size mismatch means the file changed on
- * disk since (a same-size content change is out of scope for this cheap check
- * — the caller's conflict/save logic re-reads on a positive result).
+ * differs from the parse snapshot. Compares the file's exact BYTES against
+ * `expected` (a string is compared as its exact UTF-8 bytes), so a SAME-SIZE
+ * external edit is still caught — a size match is never trusted. An external
+ * deletion (file or a parent directory gone) is treated as 'changed' rather
+ * than surfacing a NotFoundError, so the conflict path never trusts a stale
+ * snapshot. Any other read/permission error still throws.
  */
 export async function changedOnDisk(
   root: FileSystemDirectoryHandle,
   posixPath: string,
-  expectedBytes: number,
+  expected: Uint8Array | string,
 ): Promise<boolean> {
-  const { dir, file } = await resolveFile(root, posixPath)
-  const fh = await dir.getFileHandle(file)
+  let fh: FileSystemFileHandle
+  try {
+    const { dir, file } = await resolveFile(root, posixPath)
+    fh = await dir.getFileHandle(file)
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'NotFoundError') return true
+    throw err
+  }
   const fileObj = await fh.getFile()
-  return fileObj.size !== expectedBytes
+  const current = new Uint8Array(await fileObj.arrayBuffer())
+  const expectedBytes = typeof expected === 'string' ? new TextEncoder().encode(expected) : expected
+  if (current.byteLength !== expectedBytes.byteLength) return true
+  for (let i = 0; i < current.byteLength; i++) {
+    if (current[i] !== expectedBytes[i]) return true
+  }
+  return false
 }

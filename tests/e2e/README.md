@@ -88,6 +88,21 @@ handle sees the old or the new version, never a mix).
 
 Delete `_smoke_tmp.tmdl` afterward.
 
+## 5b. External-change detection (FR-25)
+
+`changedOnDisk(root, path, expected)` compares the file's exact bytes against
+the snapshot (a string is compared as its exact UTF-8 bytes), so a **same-size**
+external edit is caught:
+
+1. Write `writeFileAtomic(root, PATH, bytes)` with
+   `bytes = new TextEncoder().encode('AAAA')`.
+2. From the OS, edit that file's content to a DIFFERENT same-length string
+   (`'BBBB'`). `changedOnDisk(root, PATH, bytes)` MUST return `true` (same size,
+   different bytes) — a size-only check would wrongly return `false`.
+3. Restore `'AAAA'`; `changedOnDisk(root, PATH, bytes)` returns `false`.
+4. Delete the file from the OS; `changedOnDisk(root, PATH, bytes)` MUST return
+   `true` (an external deletion is a change), never a `NotFoundError`.
+
 ## 6. Permission lifecycle (FR-24)
 
 1. `queryPermission(root)` — expected to read back the current `PermissionState`
@@ -117,8 +132,9 @@ no longer returns it.
   (atomic OS swap), then verifies the committed byte length.
 - `readFile`/`writeFileAtomic`/`changedOnDisk` resolve root-relative POSIX paths,
   never touching an absolute path.
-- `changedOnDisk(root, path, expectedBytes)` compares on-disk size to the parse
-  snapshot's `expectedBytes` (FR-25); a size mismatch returns `true` (the
-  caller's conflict/save logic re-reads on a positive result).
+- `changedOnDisk(root, path, expected)` content-compares the file's exact bytes
+  against the snapshot (a string is compared as its UTF-8 bytes), so a SAME-SIZE
+  external edit is still caught; an external deletion returns `true` (changed)
+  rather than a `NotFoundError` (FR-25).
 - `isSupported()` gates on `typeof window.showDirectoryPicker === 'function'`,
   which is Chromium-only.
