@@ -50,6 +50,7 @@ export default function SchemaExplorer({ lsdl }: SchemaExplorerProps) {
     () => buildAiRows(lsdl, project.objects, pristine, journal),
     [lsdl, project.objects, pristine, journal],
   )
+  const aiRowsById = useMemo(() => new Map(rows.map((r) => [r.obj.id, r])), [rows])
 
   const groups = useMemo<TableGroup[]>(() => {
     const byKey = new Map<string, AiObjectRow[]>()
@@ -120,13 +121,15 @@ export default function SchemaExplorer({ lsdl }: SchemaExplorerProps) {
   /** Included dependents of a field that would be affected by excluding it. */
   const dependentNames = (row: AiObjectRow): ModelObject[] => {
     const dependents = graph.dependents(row.obj.id)
-    const byId = new Map(project.objects.map((o) => [o.id, o]))
     const names: ModelObject[] = []
     for (const id of dependents) {
-      const dep = byId.get(id)
+      const dep = aiRowsById.get(id)
       if (dep === undefined) continue
-      if (dep.hidden) continue // already excluded — no cross-impact
-      names.push(dep)
+      // Skip a dependent that is AI-EXCLUDED (effective lsdlVisibility /
+      // entity Visibility) — never the model's PBI IsHidden flag, which is a
+      // different signal entirely (FR-17 cross-impact warning).
+      if (dep.hidden) continue
+      names.push(dep.obj)
     }
     return names
   }
