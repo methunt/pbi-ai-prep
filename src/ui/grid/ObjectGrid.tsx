@@ -76,22 +76,35 @@ export default function ObjectGrid() {
     count: pageRows.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => 42,
-    overscan: 12,
+    overscan: 20,
   })
   const virtualItems = virtualizer.getVirtualItems()
 
-  // The grid stays MOUNTED but `hidden` (display:none) while another tab is
-  // active, and rows can arrive asynchronously after the folder parse
-  // completes. Tanstack-virtual's ResizeObserver is attached once the scroll
-  // element exists; if it was 0-height (hidden tab / pre-parse) when that
-  // happened, a later resize can be missed and the grid renders visually
-  // blank until an unrelated interaction forces a reflow. Force a fresh
-  // measurement whenever the row count or the visible tab changes.
-  const activeTab = useStore((s) => s.activeTab)
+  // Two independent causes of "blank gaps in the grid" collapsed into one
+  // fix: (1) the grid stays MOUNTED but hidden while another tab is active,
+  // and rows arrive asynchronously after the folder parse — if the scroll
+  // element's height was wrong when tanstack-virtual's internal
+  // ResizeObserver first attached, later real size changes can be missed;
+  // (2) re-SORTING reorders `pageRows` in place without changing its
+  // length, and tanstack-virtual's cached item offsets can desync from the
+  // new order, painting some rows at stale `translateY` positions and
+  // leaving visible gaps where nothing renders (confirmed live: gaps
+  // appeared immediately after sorting by "Used"). A dedicated
+  // ResizeObserver forces a fresh `measure()` on every real size change
+  // (fixes #1); explicitly re-measuring whenever the sort spec or page
+  // changes forces the offset cache to rebuild against the new order
+  // (fixes #2) instead of trusting incremental reconciliation.
   useEffect(() => {
-    if (activeTab !== 'desc') return
+    const el = scrollRef.current
+    if (el === null) return
+    const observer = new ResizeObserver(() => virtualizer.measure())
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [virtualizer])
+
+  useEffect(() => {
     virtualizer.measure()
-  }, [activeTab, pageRows.length, virtualizer])
+  }, [filters.sort?.key, filters.sort?.dir, filters.page, virtualizer])
 
   // FR-21 canvas→grid round-trip: scroll the focused object into view and flash
   // its row. Page to the page that holds it, then scroll within that page.
