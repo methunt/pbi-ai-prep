@@ -330,51 +330,49 @@ function FieldRow({ row, readOnly, dependents, onToggleInclude, onAddTerm, onRem
     if (result !== row.terms) onRemoveTerm(result)
   }
 
+  // Mockup field row (single line): [type-dot + type] [name ~190px + Used/not
+  // reachable] [synonym chips — inline flex-wrap, flex-1] [switch — right].
   return (
-    <div className="flex flex-col gap-2 py-2.5">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={!row.hidden}
-          aria-label={`${row.obj.name} included in AI`}
-          className={`switch ${row.hidden ? '' : 'on'} ${readOnly ? 'cursor-not-allowed' : ''}`}
-          disabled={readOnly}
-          onClick={onToggleInclude}
+    <div className="flex items-start gap-2.5 py-2.5">
+      <span className="type-cell mt-0.5 flex-none">
+        <span className="type-dot" aria-hidden="true" />
+        {row.obj.type}
+      </span>
+      <div className="min-w-0 w-[190px] flex-none">
+        <div className="truncate text-[12.5px] font-semibold">{row.obj.name}</div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/55">
+          {row.hidden && <span className="opacity-70">not reachable</span>}
+        </div>
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <SynonymChips
+          terms={row.terms}
+          onAdd={handleAdd}
+          onRemove={handleRemove}
+          readOnly={readOnly}
         />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[12.5px] font-medium">
-            {row.obj.name}
-            <span className="ml-2 text-[10.5px] font-normal uppercase tracking-wide text-foreground/55">
-              {row.obj.type}
+        {warn && (
+          <div className="mt-1.5 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-[11px] text-destructive">
+            <span aria-hidden="true">⚠</span>
+            <span>
+              Excluding <span className="font-semibold">{row.obj.name}</span> also affects{' '}
+              {dependents.map((d) => d.name).join(', ')} which depend on it.
             </span>
           </div>
-          <div className="text-[10.5px] text-foreground/55">
-            {row.hidden ? 'Hidden / excluded' : 'Visible / included in AI'}
-          </div>
-        </div>
-        <span className="mono tabular flex-none text-[11px] text-foreground/60">
-          {liveTermsCount}/{SYNONYM_CAP}
-        </span>
+        )}
       </div>
-
-      {warn && (
-        <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/8 px-3 py-2 text-[11px] text-destructive">
-          <span aria-hidden="true">⚠</span>
-          <span>
-            Excluding <span className="font-semibold">{row.obj.name}</span> also affects{' '}
-            {dependents.map((d) => d.name).join(', ')}
-            {dependents.length === 1 ? ' which' : ' which'} depend on it.
-          </span>
-        </div>
-      )}
-
-      <SynonymChips
-        terms={row.terms}
-        onAdd={handleAdd}
-        onRemove={handleRemove}
-        readOnly={readOnly}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={!row.hidden}
+        aria-label={`${row.obj.name} included in AI`}
+        className={`switch mt-0.5 flex-none ${row.hidden ? '' : 'on'} ${readOnly ? 'cursor-not-allowed' : ''}`}
+        disabled={readOnly}
+        onClick={onToggleInclude}
       />
+      <span className="mono tabular flex-none text-[11px] text-foreground/60">
+        {liveTermsCount}/{SYNONYM_CAP}
+      </span>
     </div>
   )
 }
