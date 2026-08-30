@@ -28,6 +28,7 @@ import { changedOnDisk, writeFileAtomic, readFile, requestPermission } from '../
 import { requestLayer } from './broker'
 import { deriveCultureText } from './layerDeps'
 import type { SourceSpans } from '../domain/objects'
+import { parseTmdlProject } from '../parse/tmdl-reader'
 
 /** The folder handle the currently-open project was picked from; bound during load. */
 let activeRoot: FileSystemDirectoryHandle | null = null
@@ -104,13 +105,35 @@ function buildPlanLayers(files: Record<string, FileRecord>, layers: LayerMap): P
   return { texts, lsdl: lsdlLayers }
 }
 
+/**
+ * Re-derive one object's spans by re-parsing ONLY its own file's fresh text.
+ * A `null` span (AD-5: "content changed, must be re-derived") means a byte
+ * shift from ANOTHER edit in the same file — a rename cascade patching a
+ * different object's DAX reference, for example — moved this object without
+ * touching its own content. The PREVIOUS "keep the stale span as a best
+ * effort" fallback left `declarationSpan.start` pointing at a byte offset
+ * that no longer lands on a line boundary in the shifted file, which is
+ * exactly the "does not land on a line boundary" crash on the NEXT save.
+ * Matched by lineageTag-derived id first (stable across a re-parse); a
+ * surrogate (span-derived) id cannot survive a shift, so those fall back to
+ * matching by (table, name, type) instead, which the reader keeps stable.
+ */
+export function rederiveSpans(obj: ModelObject, freshText: string): Pick<ModelObject, 'declarationSpan' | 'nameSpan' | 'docCommentSpan'> | undefined {
+  const { objects } = parseTmdlProject(new Map([[obj.file, freshText]]))
+  const byId = objects.find((o) => o.id === obj.id)
+  const match = byId ?? objects.find((o) => o.type === obj.type && o.table === obj.table && o.name === obj.name)
+  if (match === undefined) return undefined
+  return { declarationSpan: match.declarationSpan, nameSpan: match.nameSpan, docCommentSpan: match.docCommentSpan }
+}
+
 /** Bake the written field edits into the pristine model and apply the refreshed
  * spans, so the read-model stays consistent after the journal is cleared. */
-function bakePristine(
+export function bakePristine(
   pristine: ModelObject[],
   journal: JournalRecord[],
   writtenKeys: ReadonlySet<string>,
   refreshedSpansByFile: Record<string, RefreshedFileSpans>,
+  freshTextByFile: Record<string, string>,
 ): ModelObject[] {
   const writtenRecords = journal.filter((r) => writtenKeys.has(r.file))
   const baked = projectModel(pristine, writtenRecords)
@@ -119,12 +142,20 @@ function bakePristine(
     const sp = refreshedSpansByFile[obj.file]?.[obj.id]
     if (sp === undefined) return obj
     const copy: ModelObject = { ...obj }
-    // A null span means the object's span was invalidated (edited region); it
-    // must be re-derived by a re-parse — keep the last known span as a best
-    // effort so a follow-up save still has an anchor to patch.
+    const declarationInvalidated = sp.declaration === null
+    const nameInvalidated = sp.name === null
     if (sp.declaration !== null && sp.declaration !== undefined) copy.declarationSpan = sp.declaration
     if (sp.name !== null && sp.name !== undefined) copy.nameSpan = sp.name
     if (sp.docComment !== undefined) copy.docCommentSpan = sp.docComment ?? undefined
+    if (declarationInvalidated || nameInvalidated) {
+      const freshText = freshTextByFile[obj.file]
+      const rederived = freshText === undefined ? undefined : rederiveSpans(copy, freshText)
+      if (rederived !== undefined) {
+        copy.declarationSpan = rederived.declarationSpan
+        copy.nameSpan = rederived.nameSpan
+        copy.docCommentSpan = rederived.docCommentSpan
+      }
+    }
     return copy
   })
 }
@@ -224,7 +255,9 @@ export async function saveWrites(options: { overwrite?: boolean } = {}): Promise
   // records, mark touched lazy layers stale, refresh file texts + spans.
   const writtenKeySet = new Set(writtenKeys)
   const remainingJournal = journal.filter((r) => !writtenKeySet.has(r.file))
-  const bakedPristine = bakePristine(pristine, journal, writtenKeySet, refreshedSpansByFile)
+  const freshTextByFile: Record<string, string> = {}
+  for (const [path, f] of Object.entries(updatedFiles)) freshTextByFile[path] = f.text
+  const bakedPristine = bakePristine(pristine, journal, writtenKeySet, refreshedSpansByFile, freshTextByFile)
   const nextLayers = markLayersStale(layers, touched) as LayerMap
   useStore.getState().applySaveCommit(updatedFiles, bakedPristine, remainingJournal, nextLayers)
 
