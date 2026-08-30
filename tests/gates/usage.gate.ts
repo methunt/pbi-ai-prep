@@ -6,7 +6,7 @@
 // failure is the expected outcome, not a bug.
 //
 // Contracted call shape (pinned by IMPLEMENTATION-PLAN):
-//   parseTmdl(files: Map<path, text>) -> { objects, errors }        (Task 3.2)
+//   parseTmdlProject(files: Map<path, text>) -> { objects, errors }   (Task 3.2)
 //   buildGraph(objects) -> graph; graph.usage(id) -> { direct, transitive, leaf, total }  (Task 2.4)
 // Visual (leaf-kind) edges arrive via the PBIR reader (Task 3.4) and feed buildGraph
 // at the marked wiring point below.
@@ -15,7 +15,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { it } from 'vitest'
 import { buildGraph } from '../../src/domain/graph'
-import { parseTmdl } from '../../src/parse/tmdl-reader'
+import { parseTmdlProject } from '../../src/parse/tmdl-reader'
 import expected from '../fixtures/mock-model/expected-usage.json'
 
 const MODEL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'mock-model')
@@ -40,7 +40,7 @@ function readTmdlFiles(): Map<string, string> {
 }
 
 it('usage gate: fixture Used counts match expected-usage.json (PRD §5)', () => {
-  const { objects, errors } = parseTmdl(readTmdlFiles())
+  const { objects, errors } = parseTmdlProject(readTmdlFiles())
   if (errors.length > 0) {
     throw new Error(`fixture failed to parse: ${JSON.stringify(errors)}`)
   }

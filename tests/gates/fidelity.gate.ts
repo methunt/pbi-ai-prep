@@ -10,12 +10,12 @@
 //
 // Reference model: tests/fixtures/mock-model/ until Task 8.1 swaps in the real
 // _test_pbip_w_ai model. Adaptation points when the real interfaces land are
-// marked below (planWrites/applyPatches/parseTmdl shapes per Tasks 3.2/4.1/4.2).
+// marked below (planWrites/applyPatches/parseTmdlProject shapes per Tasks 3.2/4.1/4.2).
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { it } from 'vitest'
-import { parseTmdl } from '../../src/parse/tmdl-reader'
+import { parseTmdlProject } from '../../src/parse/tmdl-reader'
 import { applyPatches } from '../../src/write/patch-engine'
 import { planWrites } from '../../src/write/write-planner'
 
@@ -56,7 +56,7 @@ it('fidelity gate: edit-free save is byte-identical (FR-23/SM-1)', () => {
   const texts = new Map(paths.map((p) => [p, (originals.get(p) as Buffer).toString('utf8')]))
 
   const tmdlFiles = new Map([...texts].filter(([p]) => p.endsWith('.tmdl')))
-  const { objects, errors } = parseTmdl(tmdlFiles)
+  const { objects, errors } = parseTmdlProject(tmdlFiles)
   if (errors.length > 0) {
     throw new Error(`reference model failed to parse: ${JSON.stringify(errors)}`)
   }

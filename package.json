@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "lint": "eslint .",
     "gates": "node scripts/run-gates.mjs",
     "preview": "vite preview"
   },
