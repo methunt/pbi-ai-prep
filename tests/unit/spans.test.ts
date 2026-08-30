@@ -92,6 +92,29 @@ describe('locateDocComment', () => {
     const doc = locateDocComment(text, declStart)
     expect(sliceBytes(text, doc!)).toBe('\t/// doc line\n')
   })
+
+  it('never captures a /// line deeper-indented inside a DAX body', () => {
+    // Measure "Total"'s body ends with a deeper-indented /// comment; that is
+    // expression text, not the doc comment of the next declaration.
+    const text = [
+      'table Sales',
+      '\t/// Total sales amount.',
+      '\tmeasure "Total" =',
+      '\t\tSUMX(Sales, Sales[Amount] * Sales[Quantity])',
+      '\t\t/// A excludes returns',
+      '\tmeasure "Refunds" = CALCULATE(Sales[Amount])',
+      '',
+    ].join('\n')
+    expect(locateDocComment(text, locateDeclaration(text, 5).start)).toBeUndefined()
+    expect(sliceBytes(text, locateDocComment(text, locateDeclaration(text, 2).start)!)).toBe(
+      '\t/// Total sales amount.\n',
+    )
+  })
+
+  it('never captures a /// line less indented than the declaration', () => {
+    const text = ['/// table-level note', '\ttable Sales'].join('\n')
+    expect(locateDocComment(text, locateDeclaration(text, 1).start)).toBeUndefined()
+  })
 })
 
 describe('locateNameToken', () => {

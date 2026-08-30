@@ -109,14 +109,23 @@ export function locateDeclaration(text: string, line: number): Span {
   return { start: lines[line].byteStart, end: lines[line].byteEnd }
 }
 
+/** Indentation prefix (leading whitespace) of a line's content. */
+function indentOf(content: string): string {
+  let i = 0
+  while (i < content.length && isBlankChar(content[i])) i++
+  return content.slice(0, i)
+}
+
 /**
  * Byte span of the contiguous `///` doc-comment lines immediately above the
  * declaration line containing `declStart` (a byte offset as produced by
  * `locateDeclaration(...).start`), terminator included — so the span ends
  * exactly at the declaration start. `undefined` when the line immediately
- * above is not a `///` line; the run stops at any other line (blank, `//`,
- * code). Indentation before `///` is part of the span. Throws RangeError when
- * `declStart` is outside the text.
+ * above is not a `///` line at the declaration's exact indentation; the run
+ * stops at any line that is blank, non-`///`, or differently indented — a
+ * `///` line deeper than the declaration sits inside a body/expression and
+ * must never be captured as a doc comment. Indentation before `///` is part
+ * of the span. Throws RangeError when `declStart` is outside the text.
  */
 export function locateDocComment(text: string, declStart: number): Span | undefined {
   const lines = lineTable(text)
@@ -127,8 +136,13 @@ export function locateDocComment(text: string, declStart: number): Span | undefi
   // The line containing declStart: the last line starting at or before it.
   let decl = 0
   while (decl + 1 < lines.length && lines[decl + 1].byteStart <= declStart) decl++
+  const declIndent = indentOf(lines[decl].content)
   let top = decl - 1
-  while (top >= 0 && lines[top].content.trimStart().startsWith('///')) top--
+  while (
+    top >= 0 &&
+    indentOf(lines[top].content) === declIndent &&
+    lines[top].content.trimStart().startsWith('///')
+  ) top--
   if (top + 1 >= decl) return undefined
   return { start: lines[top + 1].byteStart, end: lines[decl - 1].byteEnd }
 }
