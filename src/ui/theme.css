@@ -19,7 +19,9 @@
   --color-sky: hsl(199 89% 48%);
   --color-cyan: hsl(188 94% 43%);
   --color-emerald: hsl(160 84% 39%);
-  --color-amber: hsl(38 92% 50%);
+  /* Destructive red (FR-31/FR-33) — the ONLY red in the palette; used for the
+     Delete action and name-collision warnings. Not violet/purple. */
+  --color-destructive: hsl(0 84% 60%);
   /* Popover / tooltip surface — the dark "lifted" panel that pops over the
      grid (mockup `.tip-body`). Dark override resolves to a lighter slate so
      the tooltip stays readable over the dark surface. */
@@ -40,6 +42,7 @@
   --color-foreground: hsl(210 40% 98%);
   --color-secondary: hsl(217 33% 15%);
   --color-muted: hsl(217 33% 15%);
+  --color-destructive: hsl(0 72% 51%);
   --color-popover: hsl(217 33% 22%);
   color-scheme: dark;
 }
@@ -119,8 +122,18 @@ body,
     background-color: color-mix(in srgb, var(--color-primary) 86%, black);
     box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--color-primary) 50%, transparent);
   }
-  .btn-primary[disabled] {
-    background-color: var(--color-primary);
+  /* Destructive (FR-31/FR-33): the ONLY red button in the app — for Delete. */
+  .btn-danger {
+    background-color: var(--color-destructive);
+    color: #fff;
+  }
+  .btn-danger:hover {
+    filter: brightness(0.93);
+    box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--color-destructive) 50%, transparent);
+  }
+  .btn-danger[disabled] {
+    background-color: var(--color-destructive);
+    color: #fff;
   }
   .btn-outline {
     background-color: var(--color-card);
@@ -488,6 +501,23 @@ body,
     overflow: auto;
     pointer-events: auto;
     tab-size: 2;
+  }
+
+  /* ---------- modal (mockup .scrim / .fade-up; AD-11 focus) ---------- */
+  .scrim {
+    position: fixed;
+    inset: 0;
+    background: color-mix(in srgb, var(--color-popover) 45%, transparent);
+    z-index: 80;
+    display: none;
+    align-items: center;
+    justify-content: center;
+  }
+  .scrim.on { display: flex; }
+  .fade-up { animation: fadeUp 220ms ease both; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
   }
   /* ---------- focus ring (AD-11) ---------- */
   :where(button, a, input, select, textarea, [tabindex]):focus-visible {

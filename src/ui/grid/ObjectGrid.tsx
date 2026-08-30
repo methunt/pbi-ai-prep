@@ -17,6 +17,7 @@ import GridRow from './GridRow'
 import Heading from './Heading'
 import Pagination from './Pagination'
 import FilterBar from './FilterBar'
+import SelectionContext from './SelectionContext'
 import { descriptionFor, hasJournalEdit, pendingRenameFor, pendingRenameRecordId } from './cellUtils'
 import type { ModelObject, ObjectType } from '../../domain/objects'
 
@@ -252,6 +253,8 @@ export default function ObjectGrid() {
         onFilter={setFilter}
         onToggleAll={toggleAll}
       />
+
+      <SelectionContext />
 
       <div
         ref={scrollRef}
