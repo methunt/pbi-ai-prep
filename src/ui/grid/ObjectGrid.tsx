@@ -303,7 +303,7 @@ export default function ObjectGrid() {
 
       <SelectionContext />
 
-      <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <div className="mx-4 mb-3 flex min-h-[220px] flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
       <div
         ref={scrollRef}
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
