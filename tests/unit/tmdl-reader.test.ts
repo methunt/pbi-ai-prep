@@ -18,6 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { parseTmdlProject } from '../../src/parse/tmdl-reader'
 import { spanDerive } from '../../src/domain/span'
 import type { Span } from '../../src/domain/span'
+import { buildGraph } from '../../src/domain/graph'
 import type { ModelObject } from '../../src/domain/objects'
 import { locateDeclaration } from '../../src/parse/spans'
 
@@ -65,7 +66,11 @@ const find = (table: string, name: string) =>
 describe('parseTmdlProject — object counts (FR-5)', () => {
   it('parses the fixture with no errors and no broken edges', () => {
     expect(parsed.errors).toEqual([])
-    expect(parsed.brokenEdges).toEqual([])
+    // The fixture's one broken reference: the field parameter's NAMEOF wrap
+    // of the deleted column (case 2) — attributed to the param, not dropped.
+    expect(parsed.brokenEdges).toEqual([
+      { from: '0917c069-c173-407a-9732-21ec0b326313', to: 'Sales[Deleted Column]', kind: 'fieldParam' },
+    ])
   })
 
   it('emits one object per declaration with the expected type counts', () => {
@@ -236,13 +241,16 @@ describe('relationship edges (column-level endpoints)', () => {
   it('emits one edge per endpoint column from the feeder-minted relationship node', () => {
     const relText = fixtureFiles.get('definition/relationships.tmdl') as string
     const relNode = spanDerive('definition/relationships.tmdl', locateDeclaration(relText, 0))
-    expect(parsed.edges).toEqual([
+    expect(parsed.edges.slice(0, 2)).toEqual([
       { from: relNode, to: '85397e8a-8ad4-48dc-aa7c-6c275ab3a11e', kind: 'relationship' },
       { from: relNode, to: 'e53c09ce-73bf-4e06-bae9-310a967f11a2', kind: 'relationship' },
     ])
-    // Both endpoints are ids of parsed objects.
+    // Both endpoints are ids of parsed objects (relationship-kind edges carry
+    // resolved column ids; the broken param wrap intentionally does not).
     const ids = new Set(parsed.objects.map((o) => o.id))
-    for (const edge of parsed.edges) expect(ids.has(edge.to)).toBe(true)
+    for (const edge of parsed.edges.filter((e) => e.kind === 'relationship')) {
+      expect(ids.has(edge.to)).toBe(true)
+    }
   })
 
   it('marks an endpoint that resolves to nothing as broken, not dropped', () => {
@@ -336,6 +344,109 @@ describe('scale (FR-8)', () => {
     expect(result.errors).toEqual([])
     expect(result.objects).toHaveLength(2000) // 250 tables x (table + 4 cols + 2 measures + 1 calc item)
     expect(elapsed).toBeLessThan(2000)
+  })
+})
+
+describe('model edges (AD-6) — measure / calcObject / calcItem / fieldParam / function', () => {
+  it('emits a measure edge from a measure DAX body to the referenced column and measures', () => {
+    const chainA = find('Sales', 'Chain A')
+    const chainB = find('Sales', 'Chain B')
+    const amount = find('Sales', 'Amount')
+    const chainC = find('Sales', 'Chain C')
+    expect(parsed.edges).toContainEqual({ from: chainA?.id, to: chainB?.id, kind: 'measure' })
+    expect(parsed.edges).toContainEqual({ from: chainB?.id, to: chainC?.id, kind: 'measure' })
+    expect(parsed.edges).toContainEqual({ from: chainC?.id, to: amount?.id, kind: 'measure' })
+  })
+
+  it('emits a calcObject edge from a calculated column to its source column', () => {
+    const doubled = find('Sales', 'Amount Doubled')
+    const amount = find('Sales', 'Amount')
+    expect(parsed.edges).toContainEqual({ from: doubled?.id, to: amount?.id, kind: 'calcObject' })
+    // The calc column of the field-parameter table references its identity column.
+    const name = find('Field Slices', 'Name')
+    const identity = find('Field Slices', 'Field Slices')
+    expect(parsed.edges).toContainEqual({ from: name?.id, to: identity?.id, kind: 'calcObject' })
+  })
+
+  it('emits a calcItem edge from a calculation item Expression to the referenced measure', () => {
+    const item = find('Time Calc', 'No Calc')
+    // SELECTEDMEASURE() references nothing: the orphaned calc item carries no DAX edge.
+    expect(parsed.edges.filter((e) => e.kind === 'calcItem' && e.from === item?.id)).toEqual([])
+  })
+
+  it('emits a fieldParam edge per NAMEOF tuple, live and broken alike', () => {
+    const param = find('', 'Field Slices')
+    const region = find('Sales', 'Region')
+    expect(parsed.edges).toContainEqual({ from: param?.id, to: region?.id, kind: 'fieldParam' })
+    // The wrapped 'Deleted' column does not exist: resolved-by-name attempt, attributed broken.
+    expect(parsed.edges).toContainEqual({ from: param?.id, to: 'Sales[Deleted Column]', kind: 'fieldParam' })
+    expect(parsed.brokenEdges).toContainEqual({ from: param?.id, to: 'Sales[Deleted Column]', kind: 'fieldParam' })
+  })
+
+  it('emits a function edge from a daxFunction body reference', () => {
+    const files = new Map<string, string>([
+      [
+        'definition/functions.tmdl',
+        "/// Uses the amount.\nfunction fx_sum = ```\n\t\tSUM ( Sales[Amount] )\n\t\t```\n\tlineageTag: 55555555-5555-5555-5555-555555555555\n",
+      ],
+      [
+        'definition/tables/Sales.tmdl',
+        'table Sales\n\tlineageTag: 66666666-6666-6666-6666-666666666666\n\n\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 77777777-7777-7777-7777-777777777777\n',
+      ],
+    ])
+    const result = parseTmdlProject(files)
+    const fn = result.objects.find((o) => o.name === 'fx_sum')
+    const amount = result.objects.find((o) => o.name === 'Amount')
+    expect(result.edges).toEqual([{ from: fn?.id, to: amount?.id, kind: 'function' }])
+    expect(result.brokenEdges).toEqual([])
+  })
+
+  it('attributes an unresolvable reference to its source object as broken, not dropped', () => {
+    const files = new Map<string, string>([
+      [
+        'definition/tables/Sales.tmdl',
+        'table Sales\n\tlineageTag: 66666666-6666-6666-6666-666666666666\n\n\tmeasure Ghostly = [Missing Measure] + 1\n\t\tlineageTag: 88888888-8888-8888-8888-888888888888\n',
+      ],
+    ])
+    const result = parseTmdlProject(files)
+    const measure = result.objects.find((o) => o.name === 'Ghostly')
+    expect(result.edges).toEqual([{ from: measure?.id, to: '[Missing Measure]', kind: 'measure' }])
+    expect(result.brokenEdges).toEqual([{ from: measure?.id, to: '[Missing Measure]', kind: 'measure' }])
+    // buildGraph agrees: the reference is broken, attributed to the measure.
+    const graph = buildGraph(result.objects, result.edges)
+    expect(graph.broken).toEqual([{ from: measure?.id, to: '[Missing Measure]', kind: 'measure' }])
+  })
+
+  it('deduplicates identical references within one source expression', () => {
+    const files = new Map<string, string>([
+      [
+        'definition/tables/Sales.tmdl',
+        'table Sales\n\tlineageTag: 66666666-6666-6666-6666-666666666666\n\n\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 77777777-7777-7777-7777-777777777777\n\n\tmeasure Twice = [Amount] + [Amount]\n\t\tlineageTag: 99999999-9999-9999-9999-999999999999\n',
+      ],
+    ])
+    const result = parseTmdlProject(files)
+    const measure = result.objects.find((o) => o.name === 'Twice')
+    const amount = result.objects.find((o) => o.name === 'Amount')
+    expect(result.edges).toEqual([{ from: measure?.id, to: amount?.id, kind: 'measure' }])
+  })
+
+  it('reproduces the non-visual usage rows of expected-usage.json (FR-9 wiring proof)', () => {
+    const graph = buildGraph(parsed.objects, parsed.edges)
+    const expected: Record<string, { direct: number; transitive: number; leaf: number; total: number }> = {
+      '6cd82fce-d18c-49c0-8df7-0abbbc7ae407': { direct: 2, transitive: 2, leaf: 0, total: 4 }, // Sales[Amount]
+      '323953cf-dc3b-487f-b86f-fcb7d88c5d00': { direct: 1, transitive: 0, leaf: 0, total: 1 }, // Chain A
+      '4b186f1d-6de8-4cb1-9b08-40b2fc043611': { direct: 1, transitive: 0, leaf: 0, total: 1 }, // Chain B
+      'c482f4ec-ff3e-4a79-9209-7fc40425721a': { direct: 1, transitive: 1, leaf: 0, total: 2 }, // Chain C
+      'e53c09ce-73bf-4e06-bae9-310a967f11a2': { direct: 1, transitive: 0, leaf: 0, total: 1 }, // Region[Region]
+      'bb4ee2c0-ff65-41d9-a715-03828b3a2b14': { direct: 1, transitive: 0, leaf: 0, total: 1 }, // FS[Field Slices]
+      'da86d8ed-40a4-4df9-8c87-ab170a74628b': { direct: 0, transitive: 0, leaf: 0, total: 0 }, // calc item
+    }
+    for (const [id, exp] of Object.entries(expected)) {
+      // Sales[Region]'s visual leg arrives via Task 3.4's PBIR reader; every
+      // reader-emitted row must already match in full.
+      const got = graph.usage(id)
+      expect({ id, ...got }).toEqual({ id, ...exp })
+    }
   })
 })
 

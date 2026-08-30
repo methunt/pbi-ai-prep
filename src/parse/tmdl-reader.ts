@@ -237,6 +237,10 @@ interface TableParse {
   isAutoDate: boolean
   isCalcGroup: boolean
   isFieldParameter: boolean
+  /** NAMEOF tuples of a field-parameter table (edge seeds for `fieldParam`). */
+  fieldParamItems: FieldParameterItems['items'] | null
+  /** Calculated-partition source texts of a non-parameter table (edge seeds for `calcObject`). */
+  calculatedSources: string[]
   columns: Pending[]
   measures: Pending[]
   hierarchies: Pending[]
@@ -318,6 +322,8 @@ function parseTable(text: string, lineBox: { line: number }): TableParse {
     isAutoDate: false,
     isCalcGroup: false,
     isFieldParameter: false,
+    fieldParamItems: null,
+    calculatedSources: [],
     columns: [],
     measures: [],
     hierarchies: [],
@@ -522,7 +528,13 @@ function parseTable(text: string, lineBox: { line: number }): TableParse {
   for (const partition of table.partitions) {
     if (partition.properties.queryGroup) table.queryGroup = partition.properties.queryGroup
   }
-  table.isFieldParameter = readFieldParameter(table) !== null
+  const fieldParameter = readFieldParameter(table)
+  table.isFieldParameter = fieldParameter !== null
+  table.fieldParamItems = fieldParameter?.items ?? null
+  table.calculatedSources = table.partitions
+    .filter((p) => p.properties.type === 'calculated')
+    .map((p) => expressionText(p) ?? '')
+    .filter((source) => source !== '')
   table.isCalcGroup = table.calcGroup !== undefined
   table.isAutoDate = table.name.startsWith('LocalDateTable_') || table.name.startsWith('DateTableTemplate_')
 
@@ -599,6 +611,12 @@ function emitPending(
   return object
 }
 
+/** Edge seeds collected per table: NAMEOF tuples and calculated sources. */
+interface EdgeSeeds {
+  paramTables: { id: string; items: FieldParameterItems['items'] }[]
+  calcTables: { id: string; sources: string[] }[]
+}
+
 /** Emit the table object and all its children for one parsed table. */
 function emitTable(
   table: TableParse,
@@ -606,21 +624,25 @@ function emitTable(
   text: string,
   objects: ModelObject[],
   errors: ParseError[],
+  seeds: EdgeSeeds,
 ): void {
   const emit = (
     pending: Pending,
     type: ObjectType,
     fields: { dax?: string; hidden?: boolean; isFieldParameter?: boolean; queryGroup?: string },
     parent = table.name,
-  ): void => {
+  ): ModelObject | undefined => {
     try {
-      objects.push(emitPending(pending, type, parent, file, text, fields))
+      const object = emitPending(pending, type, parent, file, text, fields)
+      objects.push(object)
+      return object
     } catch (err) {
       errors.push({ file, line: pending.line, message: errorMessage(err) })
+      return undefined
     }
   }
 
-  emit(
+  const tableObject = emit(
     {
       kind: 'table',
       name: table.name,
@@ -640,6 +662,15 @@ function emitTable(
     // The table's own object carries no parent table.
     '',
   )
+  if (tableObject) {
+    // A field parameter's partition body feeds `fieldParam` edges only — its
+    // NAMEOF tuples are the wrap edges, never calcObject sources.
+    if (table.isFieldParameter && table.fieldParamItems && table.fieldParamItems.length > 0) {
+      seeds.paramTables.push({ id: tableObject.id, items: table.fieldParamItems })
+    } else if (table.calculatedSources.length > 0) {
+      seeds.calcTables.push({ id: tableObject.id, sources: table.calculatedSources })
+    }
+  }
   for (const column of table.columns) {
     emit(
       column,
@@ -924,6 +955,107 @@ function buildFileIndex(files: Map<string, string>): FileIndex {
   index.roles.sort(byPath)
   return index
 }
+/**
+ * Clean DAX by removing block comments, line comments and double-quoted
+ * string literals, so bracket references inside literals are not extracted
+ * (ported _cleanDAX).
+ */
+function cleanDax(dax: string): string {
+  let cleaned = dax.replace(/\/\*[\s\S]*?\*\//g, '')
+  cleaned = cleaned.replace(/\/\/.*/g, '')
+  cleaned = cleaned.replace(/"[^"]*"/g, '""')
+  return cleaned
+}
+
+/**
+ * Bare `[Name]` references — a measure or a row-context column; the shared
+ * resolver decides (ported _extractMeasureRefs, lookbehind + prefix checks
+ * kept so qualified `'T'[C]` / `T[C]` / `.C` forms are not double-counted).
+ */
+function extractBareRefs(dax: string): string[] {
+  const refs = new Set<string>()
+  const pattern = /(?<!'[^']*)\[([^\]]+)\]/g
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(dax)) !== null) {
+    const beforeBracket = dax.substring(Math.max(0, match.index - 1), match.index)
+    if (beforeBracket !== '.' && !/\w/.test(beforeBracket) && beforeBracket !== "'") {
+      refs.add(match[1].trim())
+    }
+  }
+  return [...refs]
+}
+
+/** Qualified `Table[Column]` / `'Table Name'[Column]` references (ported _extractColumnRefs). */
+function extractQualifiedRefs(dax: string): { table: string; column: string }[] {
+  const refs: { table: string; column: string }[] = []
+  const seen = new Set<string>()
+  const pattern = /(?:'([^']+)'|(\w+))\[([^\]]+)\]/g
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(dax)) !== null) {
+    const table = match[1] || match[2]
+    const column = match[3].trim()
+    const key = `${table}|${column}`
+    if (!seen.has(key)) {
+      seen.add(key)
+      refs.push({ table, column })
+    }
+  }
+  return refs
+}
+
+/**
+ * Model edges for the graph (AD-6): measure→object from measure DAX,
+ * calcObject→source from calculated column/table expressions, calcItem→DAX
+ * references, fieldParam→NAMEOF column, function→body references. Every
+ * reference resolves through the ONE shared resolver; a reference resolving
+ * to nothing stays in the edge as a resolved-by-name attempt (`[Name]` /
+ * `Table[Name]`) for buildGraph and is mirrored in brokenEdges — attributed
+ * to its source, never dropped silently. Identical (from,to,kind) triples
+ * deduplicate.
+ */
+function buildModelEdges(
+  objects: ModelObject[],
+  nameIndex: ReturnType<typeof buildNameIndex>,
+  seeds: EdgeSeeds,
+  edges: Edge[],
+  brokenEdges: BrokenEdge[],
+): void {
+  const seen = new Set<string>()
+  const emitRef = (from: string, table: string | null, name: string, kind: Edge['kind']): void => {
+    if (!name) return
+    const resolved = table ? resolveName(nameIndex, name, table) : resolveName(nameIndex, name)
+    const to = resolved ?? (table ? `${table}[${name}]` : `[${name}]`)
+    const key = `${from}\u0000${to}\u0000${kind}`
+    if (seen.has(key)) return
+    seen.add(key)
+    edges.push({ from, to, kind })
+    if (!resolved) brokenEdges.push({ from, to, kind })
+  }
+  const emitDax = (from: string, dax: string, kind: Edge['kind']): void => {
+    const cleaned = cleanDax(dax)
+    for (const name of extractBareRefs(cleaned)) emitRef(from, null, name, kind)
+    for (const ref of extractQualifiedRefs(cleaned)) emitRef(from, ref.table, ref.column, kind)
+  }
+
+  for (const object of objects) {
+    if (!object.dax) continue
+    if (object.type === 'measure') emitDax(object.id, object.dax, 'measure')
+    else if (object.type === 'calculatedColumn') emitDax(object.id, object.dax, 'calcObject')
+    else if (object.type === 'calculationItem') emitDax(object.id, object.dax, 'calcItem')
+    else if (object.type === 'daxFunction') emitDax(object.id, object.dax, 'function')
+  }
+  // Calculated-table sources feed calcObject from the table object.
+  for (const seed of seeds.calcTables) {
+    for (const source of seed.sources) emitDax(seed.id, source, 'calcObject')
+  }
+  // Field-parameter NAMEOF tuples feed fieldParam from the param table object.
+  for (const seed of seeds.paramTables) {
+    for (const item of seed.items) emitRef(seed.id, item.targetTable, item.targetName, 'fieldParam')
+  }
+}
+
+
+
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -953,7 +1085,8 @@ export function parseTmdlProject(files: Map<string, string>): TmdlParseResult {
     }
   }
   tableParses.sort((a, b) => a.table.name.localeCompare(b.table.name))
-  for (const { table, file, text } of tableParses) emitTable(table, file, text, objects, errors)
+  const seeds: EdgeSeeds = { paramTables: [], calcTables: [] }
+  for (const { table, file, text } of tableParses) emitTable(table, file, text, objects, errors, seeds)
 
   // Functions → daxFunction objects (verbatim triple-backtick bodies).
   for (const entry of index.functions) {
@@ -1004,7 +1137,12 @@ export function parseTmdlProject(files: Map<string, string>): TmdlParseResult {
       errors.push({ file: entry.file, line: lineBox.line >= 0 ? lineBox.line : null, message: errorMessage(err) })
     }
   }
-  if (relationships.length > 0) {
+  if (
+    relationships.length > 0 ||
+    seeds.paramTables.length > 0 ||
+    seeds.calcTables.length > 0 ||
+    objects.some((o) => o.dax !== undefined)
+  ) {
     const nameIndex = buildNameIndex(objects)
     for (const rel of relationships) {
       let relNode = ''
@@ -1025,7 +1163,13 @@ export function parseTmdlProject(files: Map<string, string>): TmdlParseResult {
         if (!resolved) brokenEdges.push({ from: relNode, to, kind: 'relationship' })
       }
     }
+
+    // Model edges (AD-6): measure→object, calcObject→source, calcItem→DAX,
+    // fieldParam→NAMEOF column, function→body — all resolved through the same
+    // shared resolver, deduplicated, unresolved references attributed broken.
+    buildModelEdges(objects, nameIndex, seeds, edges, brokenEdges)
   }
+
 
   // Perspective membership: attach after all objects exist.
   const memberships: PerspectiveMember[] = []
