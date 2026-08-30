@@ -6,7 +6,7 @@
 // planner re-encodes it as an escaped JSON string inside the linguisticMetadata
 // block. Read-only (permission !== 'granted') disables editing (visible, never
 // hidden). AD-11: the textarea owns focus, the header buttons are real buttons.
-import { useCallback, useState } from 'react'
+import { useCallback, useState, useEffect } from 'react'
 import { Copy, PenLine } from 'lucide-react'
 import { useStore } from '../../state/store'
 import type { LSDL } from '../../parse/lsdl-reader'
@@ -45,6 +45,14 @@ export default function InstructionsEditor({ lsdl }: InstructionsEditorProps) {
 
   const [draft, setDraft] = useState(initial)
   const [overLimit, setOverLimit] = useState(false)
+  // The LSDL layer loads lazily AFTER this panel mounts, so the mount-time
+  // `initial` is the empty fallback. Sync the draft to the REAL
+  // `lsdl.customInstructions` once it arrives, as long as there is no staged
+  // write (a staged record means the user is editing — never clobber it).
+  useEffect(() => {
+    const staged = journal.find(isInstructionsRecord)
+    if (staged === undefined) setDraft(lsdl.customInstructions)
+  }, [lsdl.customInstructions, journal])
 
   const onEdit = useCallback(
     (value: string): void => {

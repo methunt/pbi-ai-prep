@@ -10,7 +10,7 @@ interface Stage {
 }
 
 const STAGES: Stage[] = [
-  { id: 'definition', label: 'Definition tree', layer: 'lsdl' },
+  { id: 'definition', label: 'Definition tree', layer: 'objects' },
   { id: 'objects', label: 'Model objects', layer: 'objects' },
   { id: 'lineage', label: 'Lineage graph', layer: 'lineage' },
   { id: 'report', label: 'Report layer', layer: 'report' },
@@ -68,9 +68,13 @@ export default function ParseStepper() {
 
   const stages = STAGES.map((stage) => {
     if (stage.layer === 'objects') {
+      // The definition tree and model objects BOTH derive from the primary
+      // `objects` parse (AD-7), so stage 1 + 2 share its parseState and live
+      // count — real progress during the load instead of a static flash.
+      const layer = layers.objects
       return {
         ...stage,
-        state: (objectCount > 0 ? 'ready' : 'idle') as ParseState,
+        state: layer.parseState,
         count: objectCount,
       }
     }

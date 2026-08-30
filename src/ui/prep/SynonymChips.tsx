@@ -3,12 +3,17 @@
 // Each term renders as a chip carrying its state label (USER / GENERATED /
 // SUGGESTED / DELETED). Add stages a User term; remove of a Generated/Suggested
 // term TOMBSTONES it (State: Deleted, entry kept, struck-through) — never a
-// hard delete; a User term is removed outright. There is a 20-live-term cap with
-// a live `N/20` counter beside the add (refuses at cap); deleted terms are
-// struck-through and excluded from that count. Max 6 chips render inline, the
-// rest fold behind a '+N more' expander.
+// hard delete; a User term is removed outright. There is a 20-live-term cap
+// (the amber `max 20 reached` chip replaces the add control at the cap); a live
+// `N/20` counter sits in the field row. Max 6 chips render inline, the rest
+// fold behind a '+N more' expander.
+//
+// The add control matches the mockup's SMALL DASHED `+ add` pill (mockup line
+// 1518): clicking it reveals a small inline input to type the term, Enter
+// commits, Escape cancels. Read-only (permission !== 'granted') disables every
+// edit (visible, never hidden).
 import { useState } from 'react'
-import { Plus, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import type { LSdlTerm } from '../../parse/lsdl-reader'
 import { SYNONYM_CAP, SYNONYM_INLINE_MAX, TERM_STATE_LABEL, liveTerms } from './lsdlModel'
 
@@ -32,6 +37,7 @@ interface SynonymChipsProps {
 export default function SynonymChips({ terms, onAdd, onRemove, readOnly }: SynonymChipsProps) {
   const [expanded, setExpanded] = useState(false)
   const [draft, setDraft] = useState('')
+  const [adding, setAdding] = useState(false)
 
   const live = liveTerms(terms)
   const liveCount = live.length
@@ -45,6 +51,18 @@ export default function SynonymChips({ terms, onAdd, onRemove, readOnly }: Synon
     if (name === '' || atCap || readOnly) return
     onAdd(name)
     setDraft('')
+    setAdding(false)
+  }
+
+  const startAdd = (): void => {
+    if (readOnly || atCap) return
+    setDraft('')
+    setAdding(true)
+  }
+
+  const cancelAdd = (): void => {
+    setAdding(false)
+    setDraft('')
   }
 
   return (
@@ -56,9 +74,7 @@ export default function SynonymChips({ terms, onAdd, onRemove, readOnly }: Synon
           return (
             <span
               key={term.name}
-              className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11.5px] font-medium ${tone} ${
-                deleted ? 'opacity-60 line-through' : ''
-              }`}
+              className={`syn ${tone} ${deleted ? 'syn-del' : ''}`}
             >
               <span className="font-medium">{term.name}</span>
               <span className="mono text-[9.5px] font-semibold uppercase opacity-80">
@@ -79,55 +95,65 @@ export default function SynonymChips({ terms, onAdd, onRemove, readOnly }: Synon
           )
         })}
         {hidden > 0 && !expanded && (
-          <button
-            type="button"
-            className="chip !py-0.5 !text-[11px]"
-            onClick={() => setExpanded(true)}
-          >
+          <button type="button" className="syn t-slate" onClick={() => setExpanded(true)}>
             +{hidden} more
           </button>
         )}
         {expanded && hidden > 0 && (
-          <button
-            type="button"
-            className="chip !py-0.5 !text-[11px]"
-            onClick={() => setExpanded(false)}
-          >
+          <button type="button" className="syn t-slate" onClick={() => setExpanded(false)}>
             Show fewer
           </button>
         )}
         {terms.length === 0 && (
           <span className="text-[11px] text-foreground/55">No synonyms yet</span>
         )}
-      </div>
-
-      <div className="flex items-center gap-2">
-        <input
-          type="text"
-          className="field !py-1.5 !text-[12px]"
-          placeholder="Add a synonym…"
-          value={draft}
-          disabled={readOnly || atCap}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') submit()
-          }}
-          aria-label="Add synonym"
-        />
-        <button
-          type="button"
-          className="btn btn-outline btn-sm flex-none"
-          disabled={readOnly || atCap || draft.trim() === ''}
-          onClick={submit}
-        >
-          <Plus className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden="true" />
-          Add
-        </button>
-        <span
-          className={`mono tabular flex-none text-[11px] ${atCap ? 'text-destructive' : 'text-foreground/60'}`}
-        >
-          {liveCount}/{SYNONYM_CAP}
-        </span>
+        {atCap ? (
+          <span
+            className="syn"
+            style={{
+              background: 'color-mix(in srgb, var(--color-amber) 16%, transparent)',
+              color: 'var(--color-amber)',
+            }}
+            title="They are the maximum of 20 synonyms"
+          >
+            max 20 reached
+          </span>
+        ) : adding ? (
+          <span className="inline-flex items-center gap-1.5">
+            <input
+              type="text"
+              className="field mono !py-1 !px-2 !text-[11.5px] w-[150px]"
+              placeholder="Add a synonym…"
+              value={draft}
+              autoFocus
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submit()
+                else if (e.key === 'Escape') cancelAdd()
+              }}
+              aria-label="Add synonym"
+            />
+            <button
+              type="button"
+              className="syn border border-dashed border-border text-foreground/60 hover:border-primary hover:text-primary"
+              onClick={submit}
+              disabled={draft.trim() === ''}
+            >
+              add
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="syn border border-dashed border-border text-foreground/60 hover:border-primary hover:text-primary"
+            disabled={readOnly}
+            onClick={startAdd}
+            aria-label="Add synonym"
+            title="Add a synonym"
+          >
+            + add
+          </button>
+        )}
       </div>
     </div>
   )

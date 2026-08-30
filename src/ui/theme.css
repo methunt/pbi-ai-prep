@@ -57,6 +57,14 @@ body,
 #root {
   height: 100%;
 }
+/* Page background + text = the --color-bg / --color-foreground tokens (mockup
+   `body{background:hsl(var(--background))}`). Without this the page falls back
+   to the browser default (white) — dark mode renders white-on-dark tokens
+   against a white page. `.dark` resolves the tokens to the dark values. */
+body {
+  background-color: var(--color-bg);
+  color: var(--color-foreground);
+}
 
 /* ============================================================
    Chrome primitives (Task 7.1) — shapes matching mockup/index.html.
@@ -183,6 +191,14 @@ body,
   .chip[disabled] {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+  /* Active filter chip (mockup `.chip.on`) — which filter is on. FilterBar adds
+     `on` to the active chip; without this it has no highlight. */
+  .chip.on {
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+    color: var(--color-primary);
+    font-weight: 600;
   }
 
   /* ---------- tabs ---------- */
@@ -314,6 +330,55 @@ body,
   .dark .t-cyan   { color: color-mix(in srgb, var(--color-cyan) 55%, white); }
   .dark .t-emerald{ color: color-mix(in srgb, var(--color-emerald) 45%, white); }
   .dark .t-amber  { color: color-mix(in srgb, var(--color-amber) 45%, white); }
+  /* ---------- AI schema: per-field include switch (mockup `.switch`) ---------- */
+  .switch {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    border-radius: 999px;
+    border: 0;
+    cursor: pointer;
+    flex: none;
+    background: var(--color-secondary);
+    transition: background-color 140ms ease;
+  }
+  .switch::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 999px;
+    background: var(--color-card);
+    box-shadow: 0 1px 3px color-mix(in srgb, var(--color-foreground) 30%, transparent);
+    transition: transform 140ms ease;
+  }
+  .switch.on {
+    background: var(--color-primary);
+  }
+  .switch.on::after {
+    transform: translateX(18px);
+  }
+  .switch[disabled] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  /* ---------- synonym chip (mockup `.syn`) ---------- */
+  .syn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 3px 8px;
+    border-radius: 6px;
+  }
+  .syn-del {
+    text-decoration: line-through;
+    opacity: 0.6;
+  }
 
   /* ---------- landing / parse backdrop (mesh gradient) ---------- */
   .mesh {
