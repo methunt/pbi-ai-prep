@@ -32,6 +32,7 @@ export default function SelectionContext() {
   const outsideFilterCount = useStore((s) => s.outsideFilterCount)
   const journalAdd = useStore((s) => s.journalAdd)
   const clearSelection = useStore((s) => s.clearSelection)
+  const layers = useStore((s) => s.layers)
 
   const [modal, setModal] = useState<ModalId>('none')
   const selectedCount = selectedIds.length
@@ -60,6 +61,29 @@ export default function SelectionContext() {
   if (selectedCount === 0) return null
 
   const pristineById = new Map(pristine.map((o) => [o.id, o]))
+
+  // LSDL AI-visibility writes land in the CULTURE file (write-planner contract):
+  // the record's `file` is the culture file path, and `new` is a boolean where
+  // true = Hidden (exclude from AI) and false = Visible (include in AI).
+  const lsdlCultureFile =
+    (layers.lsdl.data as { file?: string } | undefined)?.file ??
+    'definition/cultures/en-US.tmdl'
+
+  const stageLsdlVisibility = (hidden: boolean): void => {
+    for (const id of selectedIds) {
+      const obj = pristineById.get(id)
+      if (obj === undefined) continue
+      journalAdd({
+        kind: 'field',
+        objectId: obj.id,
+        file: lsdlCultureFile,
+        context: 'user',
+        field: 'lsdlVisibility',
+        new: hidden,
+        old: undefined,
+      })
+    }
+  }
 
   const stageField = (field: string, value: unknown): void => {
     for (const id of selectedIds) {
@@ -137,8 +161,8 @@ export default function SelectionContext() {
           hideLabel={hideLabel}
           onRename={() => setModal('rename')}
           onSetDescription={() => setModal('desc')}
-          onIncludeInAI={() => stageField('includedInAI', true)}
-          onExcludeFromAI={() => stageField('includedInAI', false)}
+          onIncludeInAI={() => stageLsdlVisibility(false)}
+          onExcludeFromAI={() => stageLsdlVisibility(true)}
           onToggleHide={() => stageField('hidden', !allHidden)}
           onDelete={() => setModal('delete')}
           onClear={clearSelection}
