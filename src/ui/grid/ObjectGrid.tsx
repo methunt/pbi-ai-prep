@@ -45,8 +45,8 @@ export default function ObjectGrid() {
   const lastClickedRef = useRef<number | null>(null)
 
   const derived = useMemo(
-    () => deriveVisibleObjects(project.objects, filters, graph),
-    [project.objects, filters, graph],
+    () => deriveVisibleObjects(project.objects, filters, graph, pristine),
+    [project.objects, filters, graph, pristine],
   )
 
   const matchCount = derived.length

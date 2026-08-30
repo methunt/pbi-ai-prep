@@ -214,11 +214,18 @@ export function deriveVisibleObjects(
   objects: ModelObject[],
   filters: Filters,
   graph: ObjectGraph,
+  pristine: readonly ModelObject[] = objects,
 ): ModelObject[] {
   const filtered = objects.filter(o => matchesFilter(o, filters, graph))
   const sort = filters.sort
   if (!sort) return filtered
   const dir = sort.dir === 'desc' ? -1 : 1
+  // The Name column renders the PRISTINE name (a pending rename is staged, not
+  // applied), so the 'name' sort must order by that same display name (FR-9) —
+  // not the folded `obj.name`, which can carry a pending rename and split-brain
+  // the sort against what the cell renders.
+  const pristineName = new Map<string, string>()
+  for (const o of pristine) pristineName.set(o.id, o.name)
   return [...filtered].sort((a, b) => {
     let cmp: number
     switch (sort.key) {
@@ -235,8 +242,14 @@ export function deriveVisibleObjects(
       case 'type':
         cmp = a.type.localeCompare(b.type)
         break
+      case 'name': {
+        cmp = (pristineName.get(a.id) ?? a.name).localeCompare(
+          pristineName.get(b.id) ?? b.name,
+        )
+        break
+      }
       default: {
-        // 'table' | 'name' (and any future string column).
+        // 'table' (and any future string column) — table never changes on rename.
         const va = (a as unknown as Record<string, unknown>)[sort.key]
         const vb = (b as unknown as Record<string, unknown>)[sort.key]
         cmp = String(va ?? '').localeCompare(String(vb ?? ''))
