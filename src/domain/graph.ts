@@ -95,6 +95,24 @@ export function buildGraph(objects: ModelObject[], edges: readonly Edge[] = []):
   const nodes = new Set(objectIds)
   const broken: BrokenEdge[] = []
 
+  // Table containment (parent-of-children usage rule): a table is never
+  // "unused" just because nothing references the TABLE OBJECT directly — if
+  // ANY of its own columns/measures/calc items/hierarchies is used
+  // downstream, the table itself is used. There is no edge for this (a
+  // table's declaration doesn't reference its columns); it's derived purely
+  // from each child's own `.table` field.
+  const tableIdByName = new Map<string, string>()
+  for (const o of objects) if (o.type === 'table') tableIdByName.set(o.name.toLowerCase(), o.id)
+  const childrenOfTable = new Map<string, Set<string>>()
+  for (const o of objects) {
+    if (o.type === 'table' || o.table === '') continue
+    const tableId = tableIdByName.get(o.table.toLowerCase())
+    if (tableId === undefined) continue
+    let bucket = childrenOfTable.get(tableId)
+    if (bucket === undefined) childrenOfTable.set(tableId, (bucket = new Set()))
+    bucket.add(o.id)
+  }
+
   const link = (map: Map<string, Set<string>>, a: string, b: string): void => {
     let bucket = map.get(b)
     if (bucket === undefined) map.set(b, (bucket = new Set()))
@@ -159,33 +177,48 @@ export function buildGraph(objects: ModelObject[], edges: readonly Edge[] = []):
   const usageCache = new Map<string, Usage>()
   const isolationCache = new Map<string, Isolation>()
 
+  // A standalone function (not an object-literal method) so the table
+  // containment roll-up below can call it recursively on a child id.
+  function usage(id: string): Usage {
+    const cached = usageCache.get(id)
+    if (cached !== undefined) return cached
+    // 1-hop consumers minus the subject (self-loops never make a node its
+    // own dependent — matching the cycle rule).
+    const directSet = new Set(consumers.get(id) ?? [])
+    directSet.delete(id)
+    // Transitive: every reachable consumer minus the 1-hop set (a node that
+    // is both 1-hop and >=2-hop counts as direct only).
+    const transitiveSet = cone(id, consumers)
+    for (const d of directSet) transitiveSet.delete(d)
+    const leafSet = new Set(visualFroms.get(id) ?? [])
+    leafSet.delete(id)
+    let total = new Set([...directSet, ...transitiveSet, ...leafSet]).size
+    // Table containment: a table with zero direct/transitive/leaf consumers
+    // of the TABLE OBJECT itself is still "used" when any of its own
+    // columns/measures/calc items/hierarchies is used downstream — a parent
+    // is used if a child is used. Boolean roll-up (1, not a sum of
+    // children's counts): total goes from 0 to 1; direct/transitive/leaf
+    // stay at the table's own real breakdown (0) since a rolled-up child
+    // count doesn't mean "N things consume the table itself").
+    if (total === 0) {
+      for (const childId of childrenOfTable.get(id) ?? []) {
+        if (usage(childId).total > 0) {
+          total = 1
+          break
+        }
+      }
+    }
+    const result: Usage = { direct: directSet.size, transitive: transitiveSet.size, leaf: leafSet.size, total }
+    usageCache.set(id, result)
+    return result
+  }
+
   return {
     broken,
     dependents(id: string): Set<string> {
       return consumers.get(id) ?? new Set()
     },
-    usage(id: string): Usage {
-      const cached = usageCache.get(id)
-      if (cached !== undefined) return cached
-      // 1-hop consumers minus the subject (self-loops never make a node its
-      // own dependent — matching the cycle rule).
-      const directSet = new Set(consumers.get(id) ?? [])
-      directSet.delete(id)
-      // Transitive: every reachable consumer minus the 1-hop set (a node that
-      // is both 1-hop and >=2-hop counts as direct only).
-      const transitiveSet = cone(id, consumers)
-      for (const d of directSet) transitiveSet.delete(d)
-      const leafSet = new Set(visualFroms.get(id) ?? [])
-      leafSet.delete(id)
-      const result: Usage = {
-        direct: directSet.size,
-        transitive: transitiveSet.size,
-        leaf: leafSet.size,
-        total: new Set([...directSet, ...transitiveSet, ...leafSet]).size,
-      }
-      usageCache.set(id, result)
-      return result
-    },
+    usage,
     isolateTo(id: string): Isolation {
       const cached = isolationCache.get(id)
       if (cached !== undefined) return cached

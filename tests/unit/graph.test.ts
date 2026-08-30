@@ -326,3 +326,74 @@ describe('isolateTo — canvas dimming partition (FR-20, UJ-3)', () => {
     expect(ghost.offPath).toEqual(new Set(['c-1', 'm-1', 'visual-1', 't-1']))
   })
 })
+
+describe('usage — table containment (a parent is used if a child is used)', () => {
+  it('a table with zero direct edges but a used column shows total:1, not 0', () => {
+    const table = make('t-sales', 'table', 'Sales', 'Sales')
+    const col = make('col-amount', 'column', 'Amount', 'Sales')
+    const measure = make('m-total', 'measure', 'Total', 'Sales')
+    const graph = buildGraph([table, col, measure], [{ from: 'm-total', to: 'col-amount', kind: 'measure' }])
+    expect(graph.usage('t-sales')).toEqual({ direct: 0, transitive: 0, leaf: 0, total: 1 })
+    expect(graph.usage('col-amount').total).toBe(1)
+  })
+
+  it('a table stays unused when NO column/measure/etc. is used', () => {
+    const table = make('t-sales', 'table', 'Sales', 'Sales')
+    const col = make('col-amount', 'column', 'Amount', 'Sales')
+    const graph = buildGraph([table, col], [])
+    expect(graph.usage('t-sales')).toEqual({ direct: 0, transitive: 0, leaf: 0, total: 0 })
+  })
+
+  it('is a boolean roll-up, not a sum: total stays 1 with many used children', () => {
+    const table = make('t-sales', 'table', 'Sales', 'Sales')
+    const colA = make('col-a', 'column', 'A', 'Sales')
+    const colB = make('col-b', 'column', 'B', 'Sales')
+    const measure = make('m-1', 'measure', 'M', 'Sales')
+    const graph = buildGraph(
+      [table, colA, colB, measure],
+      [
+        { from: 'm-1', to: 'col-a', kind: 'measure' },
+        { from: 'm-1', to: 'col-b', kind: 'measure' },
+      ],
+    )
+    expect(graph.usage('t-sales').total).toBe(1) // never 2, never the sum of children's counts
+  })
+
+  it('a table with a DIRECT consumer of the table object itself reports its real breakdown, not the roll-up', () => {
+    const table = make('t-sales', 'table', 'Sales', 'Sales')
+    const col = make('col-amount', 'column', 'Amount', 'Sales')
+    // A relationship or calculated-table source can reference the TABLE
+    // object directly — that real edge must win over the boolean roll-up.
+    const graph = buildGraph([table, col], [{ from: 'rel-1', to: 't-sales', kind: 'relationship' }])
+    expect(graph.usage('t-sales')).toEqual({ direct: 1, transitive: 0, leaf: 0, total: 1 })
+  })
+
+  it('a used table does not falsely mark an UNRELATED empty table as used', () => {
+    const salesTable = make('t-sales', 'table', 'Sales', 'Sales')
+    const col = make('col-amount', 'column', 'Amount', 'Sales')
+    const measure = make('m-1', 'measure', 'M', 'Sales')
+    const regionTable = make('t-region', 'table', 'Region', 'Region')
+    const regionCol = make('col-region', 'column', 'Name', 'Region')
+    const graph = buildGraph(
+      [salesTable, col, measure, regionTable, regionCol],
+      [{ from: 'm-1', to: 'col-amount', kind: 'measure' }],
+    )
+    expect(graph.usage('t-sales').total).toBe(1)
+    expect(graph.usage('t-region').total).toBe(0)
+    expect(graph.usage('col-region').total).toBe(0)
+  })
+
+  it('a table-name collision across scopes does not leak containment (case-insensitive table match, scoped by exact name)', () => {
+    const table = make('t-sales', 'table', 'Sales', 'Sales')
+    const otherTypeNamedSales = make('m-sales', 'measure', 'Sales', 'Other') // a MEASURE named "Sales", different table
+    const col = make('col-amount', 'column', 'Amount', 'Sales')
+    const measure = make('m-1', 'measure', 'M', 'Sales')
+    const graph = buildGraph(
+      [table, otherTypeNamedSales, col, measure],
+      [{ from: 'm-1', to: 'col-amount', kind: 'measure' }],
+    )
+    // The measure named "Sales" must never be treated as the Sales TABLE.
+    expect(graph.usage('t-sales').total).toBe(1)
+    expect(graph.usage('m-sales').total).toBe(0)
+  })
+})

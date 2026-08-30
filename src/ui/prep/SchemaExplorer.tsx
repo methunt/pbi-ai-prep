@@ -361,7 +361,7 @@ function FieldRow({ row, readOnly, dependents, usage, onToggleInclude, onAddTerm
         <div className="truncate text-[12.5px] font-semibold">{row.obj.name}</div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/55">
           <span className={`pill pill-flat ${usedClass(usage.total)} mono !text-[9.5px]`}>
-            {usage.total === 0 ? 'Unused' : `Used ${usage.total}`}
+            {usage.total === 0 ? 'Unused' : row.obj.type === 'table' ? 'Used' : `Used ${usage.total}`}
           </span>
           {row.hidden && <span className="opacity-70">not reachable</span>}
         </div>
