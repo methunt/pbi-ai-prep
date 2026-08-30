@@ -586,7 +586,12 @@ body {
   .tip { position: relative; display: inline-flex; }
   .tip-body {
     position: absolute;
-    bottom: calc(100% + 8px);
+    /* Opens DOWNWARD, not upward: an upward tooltip has no clearance for
+       rows near the top of the scrolled grid and renders on top of the
+       sticky header (z-index 60 > header's 5) — that was the recurring
+       "values overlap the header on hover" bug across every tipped column,
+       not just DAX. */
+    top: calc(100% + 8px);
     left: 50%;
     transform: translateX(-50%);
     background: var(--color-popover);
@@ -605,11 +610,11 @@ body {
   .tip-body::after {
     content: '';
     position: absolute;
-    top: 100%;
+    bottom: 100%;
     left: 50%;
     transform: translateX(-50%);
     border: 5px solid transparent;
-    border-top-color: var(--color-popover);
+    border-bottom-color: var(--color-popover);
   }
   .tip:hover .tip-body { opacity: 1; }
   .tip:focus-within .tip-body { opacity: 1; }

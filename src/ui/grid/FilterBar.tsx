@@ -79,11 +79,12 @@ export default function FilterBar({
         <span className="mono">{counts.unused.toLocaleString()}</span>
       </button>
 
-      <label className="chip" title="Filter by object type">
+      <div className="chip relative !p-0">
         <select
-          className="cursor-pointer appearance-none bg-transparent p-0 text-[12px] text-inherit"
+          className="w-full cursor-pointer appearance-none border-0 bg-transparent py-[5px] pl-[11px] pr-7 text-[12px] text-inherit outline-none focus:outline-none focus-visible:outline-none"
           value={filters.type ?? ''}
           aria-label="Filter by object type"
+          title="Filter by object type"
           onChange={onType}
         >
           <option value="">All types</option>
@@ -93,14 +94,15 @@ export default function FilterBar({
             </option>
           ))}
         </select>
-        <ChevronDown className="pointer-events-none h-3 w-3 opacity-60" aria-hidden="true" />
-      </label>
+        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" aria-hidden="true" />
+      </div>
 
-      <label className="chip" title="Filter by table">
+      <div className="chip relative !p-0">
         <select
-          className="cursor-pointer appearance-none bg-transparent p-0 text-[12px] text-inherit"
+          className="w-full cursor-pointer appearance-none border-0 bg-transparent py-[5px] pl-[11px] pr-7 text-[12px] text-inherit outline-none focus:outline-none focus-visible:outline-none"
           value={filters.table ?? ''}
           aria-label="Filter by table"
+          title="Filter by table"
           onChange={onTable}
         >
           <option value="">All tables</option>
@@ -110,8 +112,9 @@ export default function FilterBar({
             </option>
           ))}
         </select>
-        <ChevronDown className="pointer-events-none h-3 w-3 opacity-60" aria-hidden="true" />
-      </label>
+        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3 w-3 -translate-y-1/2 opacity-60" aria-hidden="true" />
+      </div>
+
 
       <label className="ml-auto flex cursor-pointer select-none items-center gap-2 text-[11.5px] text-foreground/55">
         <input
