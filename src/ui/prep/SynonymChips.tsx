@@ -19,9 +19,12 @@ import { SYNONYM_CAP, SYNONYM_INLINE_MAX, TERM_STATE_LABEL, liveTerms } from './
 
 /** Token-bound tone per term state (deleted renders muted + struck through). */
 const STATE_TONE: Record<string, string> = {
+  // Mockup: only a USER (newly added) synonym is blue; generated / suggested /
+  // deleted are all slate. Imported-entity synonyms never carry a state, so a
+  // generated/suggested synonym must not read as a live user addition.
   User: 't-blue',
-  Generated: 't-sky',
-  Suggested: 't-cyan',
+  Generated: 't-slate',
+  Suggested: 't-slate',
   Deleted: 't-slate',
 }
 
