@@ -115,6 +115,7 @@ export function planWrites(
   model: ModelObject[],
   journal: JournalRecord[],
   layers: unknown,
+  graph?: ObjectGraphLike,
 ): Map<string, { patches: Patch[] }> {
   const bundle = readLayers(layers)
   const { edits, deletes } = foldJournal(journal)
@@ -149,7 +150,11 @@ export function planWrites(
   }
 
   // Field edits (LSDL records are grouped per culture file and planned after).
+  // A 'name' edit ALSO cascades: every other DAX-bearing object referencing
+  // the renamed object by name goes stale otherwise (Power BI shows it as a
+  // broken reference) — see planRenameCascadeDax.
   const lsdlRecords = new Map<string, FieldJournalRecord[]>()
+  const renames: { obj: ModelObject; newName: string }[] = []
   for (const [objectId, byField] of edits) {
     for (const [field, rec] of byField) {
       if (LSDL_FIELDS.has(field)) {
@@ -160,6 +165,17 @@ export function planWrites(
       }
       const obj = requireObject(objectId)
       add(obj.file, plansForField(obj, field, rec, fileOf(obj.file)))
+      if (field === 'name' && typeof rec.new === 'string' && rec.new !== '' && rec.new !== obj.name) {
+        renames.push({ obj, newName: rec.new })
+      }
+    }
+  }
+  for (const { obj, newName } of renames) {
+    for (const [file, patches] of planRenameCascadeDax(obj, newName, graph, byId, model, fileOf)) {
+      add(file, patches)
+    }
+    for (const [file, patches] of planRenameCascadeReport(obj, newName, bundle)) {
+      add(file, patches)
     }
   }
 
@@ -182,9 +198,21 @@ export function planWrites(
   }
 
   // LSDL: all records for one culture file fold into ONE re-serialization of
-  // the enclosed JSON block (the single exception to never-re-serialize).
-  for (const [file, recs] of lsdlRecords) {
-    add(file, plansForLsdl(file, recs, bundle, byId, requireObject, fileOf(file)))
+  // the enclosed JSON block (the single exception to never-re-serialize). A
+  // culture file also needs re-serializing when a rename touches an object it
+  // BINDS, even with no explicit synonym/visibility edit this session — the
+  // entity's Definition.Binding string otherwise keeps the OLD name forever
+  // (plansForLsdl only rewrote bindings for entities an explicit rec named).
+  // Only files with a real linguisticMetadata block are candidates — a file
+  // without one has nothing to rebind and plansForLsdl requires the block.
+  const lsdlFiles = new Set(lsdlRecords.keys())
+  if (renames.length > 0) {
+    for (const [file, layer] of bundle.lsdl) {
+      if (layer.block !== null) lsdlFiles.add(file)
+    }
+  }
+  for (const file of lsdlFiles) {
+    add(file, plansForLsdl(file, lsdlRecords.get(file) ?? [], bundle, byId, requireObject, fileOf(file), renames))
   }
 
   return new Map([...plans].map(([file, patches]) => [file, { patches }]))
@@ -356,6 +384,336 @@ function planRename(obj: ModelObject, value: unknown, file: FileSource): Patch[]
   const token = spanText(file.bytes, span)
   if (token === '') throw new Error(`planWrites: object ${JSON.stringify(obj.id)} has an empty name token — cannot rename`)
   return [{ start: span.start, end: span.end, replacement: requotedName(token, value) }]
+}
+
+// --- rename cascade: DAX text references in OTHER objects --------------------
+//
+// planRename above only patches the renamed object's OWN name token. Every
+// OTHER object's DAX that references it by name (`[Old]`, `'Table'[Old]`,
+// `Table[Old]`) goes stale — Power BI shows it as a broken reference. This
+// walks the graph's dependents, re-locates each reference occurrence inside
+// the dependent's OWN declaration text, and rewrites just the identifier
+// inside the brackets — never touching surrounding text/quoting/whitespace,
+// and never matching inside a `""` string literal or `//`/`/* */` comment
+// (mirrors the reader's cleanDax masking, but computed as a same-length mask
+// so match byte offsets in the ORIGINAL text stay valid).
+
+/** Escape a string for literal use inside a RegExp. */
+function reEscape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Same-length mask of `text`: comment and string-literal ranges replaced with
+ * a sentinel character that cannot appear in a valid identifier, so a regex
+ * match landing there can be rejected WITHOUT shifting any index — the mask
+ * is used only to test match validity; replacements always use the ORIGINAL
+ * text. Mirrors tmdl-reader's cleanDax (block comments, line comments, `"…"`
+ * literals), but same-length instead of stripped.
+ */
+function maskCommentsAndStrings(text: string): string {
+  let out = text.replace(/\/\*[\s\S]*?\*\//g, (m) => '\u0000'.repeat(m.length))
+  out = out.replace(/\/\/[^\n]*/g, (m) => '\u0000'.repeat(m.length))
+  out = out.replace(/"[^"]*"/g, (m) => '\u0000'.repeat(m.length))
+  return out
+}
+
+/** UTF-8 byte offset of the UTF-16 code-unit index `charIndex` into `text`. */
+function byteOffsetAt(text: string, charIndex: number): number {
+  return byteLen(text.slice(0, charIndex))
+}
+
+/**
+ * Every byte-offset occurrence, within `declText` (the dependent's OWN
+ * declaration text), of a reference to `oldTable`/`oldName` — qualified
+ * (`'Table'[Name]` / `Table[Name]`) when `oldTable` is given, plus bare
+ * `[Name]` (row-context / measure-to-measure references, which are
+ * unqualified regardless of the target's table). Returns spans relative to
+ * `declText`'s own byte 0 (the caller offsets by the declaration's absolute
+ * start).
+ */
+function findDaxRenameSpans(
+  declText: string,
+  mask: string,
+  oldTable: string | null,
+  oldName: string,
+): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = []
+  const nameGroup = reEscape(oldName)
+
+  if (oldTable !== null) {
+    const qualified = new RegExp(`(?:'${reEscape(oldTable)}'|\\b${reEscape(oldTable)}\\b)\\[(${nameGroup})\\]`, 'g')
+    let m: RegExpExecArray | null
+    while ((m = qualified.exec(declText)) !== null) {
+      if (mask.slice(m.index, m.index + m[0].length).includes('\u0000')) continue
+      const nameStart = m.index + m[0].lastIndexOf(m[1])
+      spans.push({
+        start: byteOffsetAt(declText, nameStart),
+        end: byteOffsetAt(declText, nameStart + m[1].length),
+      })
+    }
+  }
+
+  // Bare `[Name]` — only a reference to THIS object when unqualified (no
+  // preceding identifier char, dot, or opening quote), same rule the reader
+  // uses (extractBareRefs) so a qualified match above is never double-counted.
+  const bare = new RegExp(`\\[(${nameGroup})\\]`, 'g')
+  let bm: RegExpExecArray | null
+  while ((bm = bare.exec(declText)) !== null) {
+    if (mask.slice(bm.index, bm.index + bm[0].length).includes('\u0000')) continue
+    const before = declText.slice(Math.max(0, bm.index - 1), bm.index)
+    if (before === '.' || /\w/.test(before) || before === "'") continue
+    const nameStart = bm.index + 1
+    spans.push({
+      start: byteOffsetAt(declText, nameStart),
+      end: byteOffsetAt(declText, nameStart + bm[1].length),
+    })
+  }
+  return spans
+}
+
+/**
+ * Rewrite every OTHER DAX-bearing object's reference to a renamed object.
+ * `graph` supplies dependents; a dependent lacking `.dax` (not a
+ * DAX-bearing kind) or not present in `byId` (a visual/report node — handled
+ * separately by planRenameReportCascade) is skipped.
+ *
+ * Scan window: `declarationSpan` covers only the declaration LINE for a
+ * triple-backtick-fenced DAX body — the fenced body itself lives in bytes
+ * AFTER `declarationSpan.end` that the reader never spans. Widen the scan to
+ * the next declaration's start in the same file (or EOF) so a fenced body's
+ * references are reachable too, without risking a match spilling into that
+ * next object's own declaration: `nextStart` is an exclusive upper bound.
+ */
+function planRenameCascadeDax(
+  renamed: ModelObject,
+  newName: string,
+  graph: ObjectGraphLike | undefined,
+  byId: Map<string, ModelObject>,
+  model: ModelObject[],
+  fileOf: (file: string) => FileSource,
+): Map<string, Patch[]> {
+  const byFile = new Map<string, Patch[]>()
+  if (graph === undefined) return byFile
+  const oldTable = isTableLike(renamed) ? null : renamed.table
+
+  const startsByFile = new Map<string, number[]>()
+  const startsFor = (file: string): number[] => {
+    const cached = startsByFile.get(file)
+    if (cached) return cached
+    const starts = model
+      .filter((o) => o.file === file)
+      .map((o) => o.declarationSpan.start)
+      .sort((a, b) => a - b)
+    startsByFile.set(file, starts)
+    return starts
+  }
+  for (const depId of graph.dependents(renamed.id)) {
+    if (depId === renamed.id) continue // a self-reference is patched by planRename itself
+    const dep = byId.get(depId)
+    if (dep === undefined || dep.dax === undefined) continue
+    const source = fileOf(dep.file)
+    const starts = startsFor(dep.file)
+    const nextStart = starts.find((s) => s > dep.declarationSpan.start) ?? source.bytes.length
+    const windowSpan = { start: dep.declarationSpan.start, end: nextStart }
+    const windowText = spanText(source.bytes, windowSpan)
+    const mask = maskCommentsAndStrings(windowText)
+    const spans = findDaxRenameSpans(windowText, mask, oldTable, renamed.name)
+    if (spans.length === 0) continue
+    const patches = spans.map((s) => ({
+      start: windowSpan.start + s.start,
+      end: windowSpan.start + s.end,
+      replacement: newName,
+    }))
+    const bucket = byFile.get(dep.file)
+    if (bucket) bucket.push(...patches)
+    else byFile.set(dep.file, patches)
+  }
+  return byFile
+}
+// --- rename cascade: report JSON field bindings (visuals/pages/bookmarks) ---
+//
+// Report JSON (visual.json, page.json, report.json, *.bookmark.json) has no
+// byte-span tracking (the reader is a plain JSON.parse walk) and the SAME
+// string can legitimately appear unrelated elsewhere in the same file (a
+// title, a filter's literal value, a different table's column of the same
+// name) — a raw text find/replace would risk silently corrupting an
+// unrelated value. The safe path (validated against a published PBIR
+// remap tool, github.com/methunt/pbir-field-remap-toolkit): parse the JSON,
+// structurally walk every `{Column|Measure|Hierarchy}.Expression.SourceRef`
+// field-reference shape (wherever it appears — projections, sort,
+// fieldParameters, filterConfig, bookmarks, visual objects — the shape is
+// self-identifying so one generic walk covers all of them), mutate ONLY an
+// Entity/Property that matches the renamed object's OLD table+name exactly,
+// and re-serialize the WHOLE file. This is the one OTHER sanctioned
+// re-serialization exception beyond the LSDL block: report JSON has no
+// per-field byte spans to patch instead, and whole-file JSON re-serialize
+// is the field-remap ecosystem's accepted approach for this exact problem.
+
+function isJsonRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
+/** A report definition JSON file worth scanning for field references. */
+const REPORT_JSON_FILE = /\.report[\\/].*\.(json)$/i
+
+/**
+ * One field-object mutation: `{Column|Measure|Hierarchy}.Expression.SourceRef.Entity`
+ * + the sibling `Property`/`Hierarchy` name. Returns true when it matched and
+ * mutated (old_entity, old_name) → (new_entity, new_name).
+ */
+function remapFieldObject(
+  node: Record<string, unknown>,
+  oldEntity: string,
+  oldName: string | null,
+  newEntity: string,
+  newName: string | null,
+): boolean {
+  for (const kind of ['Column', 'Measure', 'HierarchyLevel', 'Aggregation'] as const) {
+    const ref = node[kind]
+    if (!isJsonRecord(ref)) continue
+    const expression = ref.Expression
+    const sourceRef = isJsonRecord(expression) ? expression.SourceRef : undefined
+    if (!isJsonRecord(sourceRef) || typeof sourceRef.Entity !== 'string') continue
+    if (typeof ref.Property !== 'string') continue
+    if (sourceRef.Entity !== oldEntity) continue
+    // A table rename (oldName === null) matches on Entity alone and never
+    // touches Property; a field rename requires the exact old Property too.
+    if (oldName !== null && ref.Property !== oldName) continue
+    sourceRef.Entity = newEntity
+    if (newName !== null) ref.Property = newName
+    return true
+  }
+  // Hierarchy shape: { Hierarchy: { Expression: { SourceRef: { Entity } }, Hierarchy: name } }
+  const hier = node.Hierarchy
+  if (isJsonRecord(hier)) {
+    const expression = hier.Expression
+    const sourceRef = isJsonRecord(expression) ? expression.SourceRef : undefined
+    if (
+      isJsonRecord(sourceRef) &&
+      sourceRef.Entity === oldEntity &&
+      typeof hier.Hierarchy === 'string' &&
+      (oldName === null || hier.Hierarchy === oldName)
+    ) {
+      sourceRef.Entity = newEntity
+      if (newName !== null) hier.Hierarchy = newName
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Recursively walk arbitrary report JSON, remapping every field-reference
+ * shape and the `queryRef`/`selector.metadata` derived strings that ride
+ * alongside a projection. Mutates `node` in place; returns whether anything
+ * changed anywhere in the subtree.
+ */
+function walkReportJson(
+  node: unknown,
+  oldEntity: string,
+  oldName: string | null,
+  newEntity: string,
+  newName: string | null,
+): boolean {
+  let changed = false
+  if (Array.isArray(node)) {
+    for (const item of node) {
+      if (walkReportJson(item, oldEntity, oldName, newEntity, newName)) changed = true
+    }
+    return changed
+  }
+  if (!isJsonRecord(node)) return false
+
+  // A container with an explicit `field` object (projections, sort, filter
+  // entries) also carries a derived `queryRef` ("Table.Name") to rebuild —
+  // reading the (possibly just-updated) Property back off the field object
+  // so a table-only rename still rebuilds queryRef with the RIGHT property.
+  const field = node.field
+  if (isJsonRecord(field) && remapFieldObject(field, oldEntity, oldName, newEntity, newName)) {
+    changed = true
+    if (typeof node.queryRef === 'string') {
+      const prop = fieldPropertyOf(field)
+      if (prop !== undefined) node.queryRef = `${newEntity}.${prop}`
+    }
+  }
+  // A bare field object anywhere (fieldParameters.parameterExpr, bookmark
+  // filter expressions, FillRule inputs, …) — the shape is self-identifying.
+  if (remapFieldObject(node, oldEntity, oldName, newEntity, newName)) changed = true
+
+  // selector.metadata is a derived "Table.Name" string, not a field object —
+  // only rewritten for an exact field rename (table-only renames don't know
+  // the metadata's property half without a field object to read it from).
+  const selector = node.selector
+  if (oldName !== null && newName !== null && isJsonRecord(selector) && typeof selector.metadata === 'string') {
+    const dot = selector.metadata.indexOf('.')
+    if (dot > 0) {
+      const entity = selector.metadata.slice(0, dot)
+      const name = selector.metadata.slice(dot + 1)
+      if (entity === oldEntity && name === oldName) {
+        selector.metadata = `${newEntity}.${newName}`
+        changed = true
+      }
+    }
+  }
+
+  for (const value of Object.values(node)) {
+    if (walkReportJson(value, oldEntity, oldName, newEntity, newName)) changed = true
+  }
+  return changed
+}
+
+/** The Property (or Hierarchy name) a just-remapped field object now carries. */
+function fieldPropertyOf(field: Record<string, unknown>): string | undefined {
+  for (const kind of ['Column', 'Measure', 'HierarchyLevel', 'Aggregation'] as const) {
+    const ref = field[kind]
+    if (isJsonRecord(ref) && typeof ref.Property === 'string') return ref.Property
+  }
+  const hier = field.Hierarchy
+  if (isJsonRecord(hier) && typeof hier.Hierarchy === 'string') return hier.Hierarchy
+  return undefined
+}
+
+/**
+ * Rewrite every report JSON file's field bindings that reference a renamed
+ * object. `layers.texts` already carries every project file (loadProject
+ * gathers the whole tree), so report files are reachable the same way TMDL
+ * files are — filtered to the `.Report/` definition tree by path.
+ */
+function planRenameCascadeReport(
+  renamed: ModelObject,
+  newName: string,
+  bundle: LayerBundle,
+): Map<string, Patch[]> {
+  const byFile = new Map<string, Patch[]>()
+  // A table rename changes the Entity for EVERY property bound to it
+  // (`oldName: null` tells walkReportJson to match on Entity alone); a
+  // column/measure/hierarchy rename changes just its own Property under an
+  // unchanged Entity.
+  const oldEntity = isTableLike(renamed) ? renamed.name : renamed.table
+  const oldName = isTableLike(renamed) ? null : renamed.name
+  const newEntity = isTableLike(renamed) ? newName : renamed.table
+  const newFieldName = isTableLike(renamed) ? null : newName
+  for (const [file, text] of bundle.texts) {
+    if (!REPORT_JSON_FILE.test(file.replace(/\\/g, '/'))) continue
+    let json: unknown
+    try {
+      json = JSON.parse(text)
+    } catch {
+      continue // an unparsable report file is skipped, never fatal (mirrors the reader)
+    }
+    if (!isJsonRecord(json)) continue
+    const changed = walkReportJson(json, oldEntity, oldName, newEntity, newFieldName)
+    if (!changed) continue
+    const serialized = JSON.stringify(json, null, 2) + '\n'
+    byFile.set(file, [{ start: 0, end: byteLen(text), replacement: serialized }])
+  }
+  return byFile
+}
+
+/** The graph slice the rename cascade needs — kept minimal so tests can stub it. */
+export interface ObjectGraphLike {
+  dependents(id: string): Set<string>
 }
 
 // --- visibility write --------------------------------------------------------
@@ -671,6 +1029,7 @@ function plansForLsdl(
   byId: Map<string, ModelObject>,
   requireObject: (objectId: string) => ModelObject,
   source: FileSource,
+  renames: { obj: ModelObject; newName: string }[] = [],
 ): Patch[] {
   const layer = bundle.lsdl.get(file)
   if (layer === undefined) throw new Error(`planWrites: no LSDL layer for culture file ${JSON.stringify(file)} — pass it via layers.lsdl`)
@@ -717,6 +1076,23 @@ function plansForLsdl(
       if (typeof rec.new !== 'boolean') throw new Error(`planWrites: ${file} lsdlVisibility must be a boolean`)
       entity.Visibility = { Value: rec.new ? 'Hidden' : 'Visible', State: 'Authored' }
     }
+  }
+
+  // Renames: an entity BOUND to a renamed object keeps its Definition.Binding
+  // pointed at the OLD name forever unless refreshed here — `resolveEntityKeys`
+  // resolved it against the PRISTINE name (that's how it still found the
+  // right object), but the persisted JSON string itself must move to the new
+  // name. A rename with NO other LSDL edit this session still needs this: it
+  // is the ONLY place that ever touches an existing binding string.
+  for (const { obj, newName } of renames) {
+    const entityKey = byObject.get(obj.id)
+    if (entityKey === undefined) continue // nothing in this file binds it
+    const entity = entities[entityKey]
+    if (!isPlainObject(entity)) continue
+    const renamedObj: ModelObject = { ...obj, name: newName }
+    entity.Definition = isPlainObject(entity.Definition)
+      ? { ...entity.Definition, Binding: bindingJson(renamedObj) }
+      : { Binding: bindingJson(renamedObj) }
   }
 
   const inner = serializeJsonBlock(raw, wrapper.contIndent)

@@ -166,7 +166,7 @@ export async function saveWrites(options: { overwrite?: boolean } = {}): Promise
   }
 
   const planLayers = buildPlanLayers(project.files, useStore.getState().layers)
-  const plans = planWrites(pristine, journal, planLayers)
+  const plans = planWrites(pristine, journal, planLayers, useStore.getState().graph)
 
   const targets: { planKey: string; diskPath: string; patches: Patch[]; text: string }[] = []
   for (const [planKey, { patches }] of plans) {

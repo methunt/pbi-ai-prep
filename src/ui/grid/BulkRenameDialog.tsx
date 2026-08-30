@@ -243,7 +243,7 @@ export default function BulkRenameDialog({
 
         <div className="mt-3 flex items-center gap-2 border-t border-border bg-secondary/40 px-5 py-3.5">
           <span className="text-[11.5px] text-foreground/55">
-            Renames also update report JSON bindings and LSDL entity keys
+            Renames also update other measures/columns' DAX, report JSON bindings, and LSDL entity keys
           </span>
           {readOnly && (
             <span className="text-[11px] text-amber">Read-only — staged renames are disabled</span>

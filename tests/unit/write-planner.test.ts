@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest'
 import type { ModelObject, ObjectType } from '../../src/domain/objects'
 import { journalAdd, type NewJournalRecord } from '../../src/domain/journal'
 import { byteLen } from '../../src/domain/span'
+import { buildGraph, type ObjectGraph } from '../../src/domain/graph'
 import { parseLSDL } from '../../src/parse/lsdl-reader'
 import { parseTmdlProject } from '../../src/parse/tmdl-reader'
 import { applyPatches } from '../../src/write/patch-engine'
@@ -25,7 +26,7 @@ import { planWrites } from '../../src/write/write-planner'
 const MODEL_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'mock-model')
 
 /** Every .tmdl file of the fixture model, as project-relative POSIX paths. */
-function loadFixture(): { texts: Map<string, string>; objects: ModelObject[] } {
+function loadFixture(): { texts: Map<string, string>; objects: ModelObject[]; graph: ObjectGraph } {
   const files: string[] = []
   const walk = (dir: string): void => {
     for (const entry of readdirSync(dir)) {
@@ -37,9 +38,9 @@ function loadFixture(): { texts: Map<string, string>; objects: ModelObject[] } {
   walk(MODEL_DIR)
   const tmdlFiles = files.filter((p) => p.endsWith('.tmdl'))
   const texts = new Map(tmdlFiles.map((p) => [p, readFileSync(join(MODEL_DIR, p), 'utf8')]))
-  const { objects, errors } = parseTmdlProject(texts)
+  const { objects, edges, errors } = parseTmdlProject(texts)
   if (errors.length > 0) throw new Error(`fixture failed to parse: ${JSON.stringify(errors)}`)
-  return { texts, objects }
+  return { texts, objects, graph: buildGraph(objects, edges) }
 }
 
 const rec = (model: ModelObject[], r: NewJournalRecord) => journalAdd(model, [], r)
@@ -306,6 +307,120 @@ describe('planWrites — rename (name-token write)', () => {
   })
 })
 
+describe('planWrites — rename cascade (other objects\' DAX references)', () => {
+  const { texts, objects, graph } = loadFixture()
+  const salesText = texts.get('definition/tables/Sales.tmdl') as string
+
+  it('rewrites a bare [Name] reference in another measure\'s DAX', () => {
+    // Chain A = [Chain B] — renaming Chain B must patch Chain A's DAX too.
+    const chainB = objects.find((o) => o.name === 'Chain B' && o.type === 'measure') as ModelObject
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: chainB.id,
+      field: 'name',
+      new: 'Middle Chain',
+      file: chainB.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/tables/Sales.tmdl')?.patches ?? []
+    // 1 for Chain B's own name token + 1 for Chain A's `[Chain B]` reference
+    // + 1 for Chain B's own DAX self-reference to Chain A is NOT expected
+    // (Chain A isn't renamed here) — so exactly 2.
+    expect(patches.length).toBe(2)
+    const applied = applyPatches(salesText, patches)
+    expect(applied).toContain("measure 'Middle Chain' = [Chain A] + [Chain C]")
+    expect(applied).toContain("measure 'Chain A' = [Middle Chain]")
+  })
+
+  it('rewrites a qualified Table[Name] reference in a calculated column', () => {
+    // 'Amount Doubled' = Sales[Amount] * 2 — renaming Amount must patch it.
+    const amount = objects.find((o) => o.name === 'Amount' && o.type === 'column') as ModelObject
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: amount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amount.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/tables/Sales.tmdl')?.patches ?? []
+    const applied = applyPatches(salesText, patches)
+    expect(applied).toContain("column 'Amount Doubled' = Sales[Revenue] * 2")
+  })
+
+  it('rewrites a qualified reference inside a triple-backtick fenced DAX body', () => {
+    // 'Chain C' = ```\n\tSUM ( Sales[Amount] )\n\t``` — the fenced body is
+    // still just declaration text; the cascade must reach inside it.
+    const amount = objects.find((o) => o.name === 'Amount' && o.type === 'column') as ModelObject
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: amount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amount.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/tables/Sales.tmdl')?.patches ?? []
+    const applied = applyPatches(salesText, patches)
+    expect(applied).toContain('SUM ( Sales[Revenue] )')
+  })
+
+  it('never touches a same-named reference inside a string literal or comment', () => {
+    const text =
+      "table T\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n" +
+      "\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\n" +
+      "\tmeasure M = \"[Amount] is not a reference\" & SUM(T[Amount]) // T[Amount] trailing comment, ignore\n" +
+      '\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n'
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/T.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const amountCol = objs.find((o) => o.name === 'Amount' && o.type === 'column') as ModelObject
+    const journal = rec(objs, {
+      kind: 'field',
+      objectId: amountCol.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amountCol.file,
+      context: 'user',
+    })
+    const plans = planWrites(objs, journal, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g)
+    const patches = plans.get('definition/tables/T.tmdl')?.patches ?? []
+    const applied = applyPatches(text, patches)
+    expect(applied).toContain('measure M = "[Amount] is not a reference" & SUM(T[Revenue]) // T[Amount] trailing comment, ignore')
+  })
+
+  it('a no-op rename (same name) cascades nothing', () => {
+    const chainB = objects.find((o) => o.name === 'Chain B' && o.type === 'measure') as ModelObject
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: chainB.id,
+      field: 'name',
+      new: 'Chain B',
+      file: chainB.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    expect(plans.size).toBe(0)
+  })
+
+  it('without a graph argument, cascade is skipped (backward compatible)', () => {
+    const chainB = objects.find((o) => o.name === 'Chain B' && o.type === 'measure') as ModelObject
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: chainB.id,
+      field: 'name',
+      new: 'Middle Chain',
+      file: chainB.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts })
+    const patches = plans.get('definition/tables/Sales.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1) // only Chain B's own name token
+  })
+})
+
 // --- 4. Visibility write -----------------------------------------------------
 
 describe('planWrites — visibility (isHidden + changedProperty)', () => {
@@ -523,6 +638,206 @@ describe('planWrites — LSDL writes (JSON block re-serialization)', () => {
       context: 'user',
     })
     expect(() => planWrites(model, journal, { texts, lsdl: [CULTURE_LSDL] })).toThrow(/fr-FR/)
+  })
+
+  it('a rename refreshes the bound entity\'s Definition.Binding, even with no other LSDL edit', () => {
+    // 'amount' has fake spans ({start:0,end:1}) unusable for planRename's own
+    // TMDL patch — this fixture only proves the LSDL-side binding refresh, so
+    // isolate it: a rename record whose own TMDL write would fail is exactly
+    // why planWrites must not require an LSDL-touching rec to run this path.
+    // Route the rename to a real, minimal TMDL file so planRename succeeds too.
+    const tmdlText = 'table Sales\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n' +
+      '\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n'
+    const { objects: realObjs } = parseTmdlProject(new Map([['definition/tables/Sales.tmdl', tmdlText]]))
+    const realAmount = realObjs.find((o) => o.name === 'Amount') as ModelObject
+    const journal = rec(realObjs, {
+      kind: 'field',
+      objectId: realAmount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: realAmount.file,
+      context: 'user',
+    })
+    const mergedTexts = new Map([...texts, ['definition/tables/Sales.tmdl', tmdlText]])
+    // resolveEntityKeys must resolve 'sales.amount' binding by PRISTINE name
+    // against realAmount (same table/name as the fixture's hand-built `amount`).
+    const plans = planWrites(realObjs, journal, { texts: mergedTexts, lsdl: [CULTURE_LSDL] })
+    const cultureePatches = plans.get(CULTURE_FILE)?.patches ?? []
+    expect(cultureePatches.length).toBe(1)
+    const applied = applyPatches(CULTURE_TEXT, cultureePatches)
+    const json = JSON.parse(applied.slice(block.start, applied.length - (CULTURE_TEXT.length - block.end)))
+    const entity = (
+      json.Entities as Record<string, { Definition: { Binding: Record<string, string> } }>
+    )['sales.amount']
+    expect(entity.Definition.Binding).toEqual({ ConceptualEntity: 'Sales', ConceptualProperty: 'Revenue' })
+  })
+})
+
+describe('planWrites — rename cascade (report JSON field bindings)', () => {
+  const { objects, graph } = loadFixture()
+  const chainA = objects.find((o) => o.name === 'Chain A' && o.type === 'measure') as ModelObject
+  const amount = objects.find((o) => o.name === 'Amount' && o.type === 'column' && o.table === 'Sales') as ModelObject
+  const region = objects.find((o) => o.name === 'Region' && o.type === 'column' && o.table === 'Sales') as ModelObject
+
+  const colExpr = (entity: string, property: string) => ({
+    Column: { Expression: { SourceRef: { Entity: entity } }, Property: property },
+  })
+  const measureExpr = (entity: string, property: string) => ({
+    Measure: { Expression: { SourceRef: { Entity: entity } }, Property: property },
+  })
+
+  const fixtureTexts = (): Map<string, string> => {
+    const { texts } = loadFixture()
+    return texts
+  }
+
+  it('rewrites a column reference in a visual projection, including its queryRef', () => {
+    const visualJson = JSON.stringify({
+      name: 'v-1',
+      visual: {
+        visualType: 'tableEx',
+        query: {
+          queryState: {
+            Values: {
+              projections: [{ field: colExpr('Sales', 'Amount'), queryRef: 'Sales.Amount' }],
+            },
+          },
+        },
+      },
+    })
+    const texts = new Map([
+      ...fixtureTexts(),
+      ['Report.Report/definition/pages/page1/visuals/visual1/visual.json', visualJson],
+    ])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: amount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amount.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('Report.Report/definition/pages/page1/visuals/visual1/visual.json')?.patches ?? []
+    expect(patches.length).toBe(1)
+    const applied = JSON.parse(applyPatches(visualJson, patches))
+    const field = applied.visual.query.queryState.Values.projections[0]
+    expect(field.field.Column.Property).toBe('Revenue')
+    expect(field.field.Column.Expression.SourceRef.Entity).toBe('Sales')
+    expect(field.queryRef).toBe('Sales.Revenue')
+  })
+
+  it('rewrites a measure reference in a sort definition', () => {
+    const visualJson = JSON.stringify({
+      name: 'v-2',
+      visual: {
+        visualType: 'tableEx',
+        query: {
+          queryState: { Values: { projections: [{ field: measureExpr('Sales', 'Chain A') }] } },
+          sortDefinition: { sort: [{ direction: 'Descending', field: measureExpr('Sales', 'Chain A') }] },
+        },
+      },
+    })
+    const texts = new Map([
+      ...fixtureTexts(),
+      ['Report.Report/definition/pages/page1/visuals/visual2/visual.json', visualJson],
+    ])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: chainA.id,
+      field: 'name',
+      new: 'Chain Top',
+      file: chainA.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('Report.Report/definition/pages/page1/visuals/visual2/visual.json')?.patches ?? []
+    const applied = JSON.parse(applyPatches(visualJson, patches))
+    expect(applied.visual.query.sortDefinition.sort[0].field.Measure.Property).toBe('Chain Top')
+    expect(applied.visual.query.queryState.Values.projections[0].field.Measure.Property).toBe('Chain Top')
+  })
+
+  it('rewrites selector.metadata alongside the field object', () => {
+    const visualJson = JSON.stringify({
+      name: 'v-3',
+      visual: {
+        visualType: 'tableEx',
+        query: { queryState: { Values: { projections: [{ field: colExpr('Sales', 'Region') }] } } },
+        objects: {
+          general: [{ properties: {}, selector: { metadata: 'Sales.Region' } }],
+        },
+      },
+    })
+    const texts = new Map([
+      ...fixtureTexts(),
+      ['Report.Report/definition/pages/page1/visuals/visual3/visual.json', visualJson],
+    ])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: region.id,
+      field: 'name',
+      new: 'Region Group',
+      file: region.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('Report.Report/definition/pages/page1/visuals/visual3/visual.json')?.patches ?? []
+    const applied = JSON.parse(applyPatches(visualJson, patches))
+    expect(applied.visual.objects.general[0].selector.metadata).toBe('Sales.Region Group')
+  })
+
+  it('never touches an unrelated same-named field in a different table', () => {
+    const visualJson = JSON.stringify({
+      name: 'v-4',
+      visual: {
+        visualType: 'tableEx',
+        query: {
+          queryState: {
+            Values: { projections: [{ field: colExpr('OtherTable', 'Amount') }, { field: colExpr('Sales', 'Amount') }] },
+          },
+        },
+      },
+    })
+    const texts = new Map([
+      ...fixtureTexts(),
+      ['Report.Report/definition/pages/page1/visuals/visual4/visual.json', visualJson],
+    ])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: amount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amount.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('Report.Report/definition/pages/page1/visuals/visual4/visual.json')?.patches ?? []
+    const applied = JSON.parse(applyPatches(visualJson, patches))
+    const projections = applied.visual.query.queryState.Values.projections
+    expect(projections[0].field.Column.Property).toBe('Amount') // OtherTable.Amount untouched
+    expect(projections[0].field.Column.Expression.SourceRef.Entity).toBe('OtherTable')
+    expect(projections[1].field.Column.Property).toBe('Revenue') // Sales.Amount renamed
+  })
+
+  it('a rename with no matching report reference plans no report file at all', () => {
+    const visualJson = JSON.stringify({
+      name: 'v-5',
+      visual: { visualType: 'tableEx', query: { queryState: { Values: { projections: [{ field: colExpr('Sales', 'Region') }] } } } },
+    })
+    const texts = new Map([
+      ...fixtureTexts(),
+      ['Report.Report/definition/pages/page1/visuals/visual5/visual.json', visualJson],
+    ])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: amount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amount.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    expect(plans.has('Report.Report/definition/pages/page1/visuals/visual5/visual.json')).toBe(false)
   })
 })
 // --- 6. Delete writes --------------------------------------------------------
