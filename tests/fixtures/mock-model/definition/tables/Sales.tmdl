@@ -1,0 +1,60 @@
+/// Synthetic fact table. Carries the hidden-measure chain (case 3) and the circular measure pair (case 5).
+table Sales
+	lineageTag: 4aa1fc9f-dac2-4236-9131-fff8085f4f0f
+
+	/// Synthetic sales amount; target of the measure chain and the calculated column
+	column Amount
+		dataType: int64
+		lineageTag: 6cd82fce-d18c-49c0-8df7-0abbbc7ae407
+		summarizeBy: none
+		sourceColumn: Amount
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Region label; reachable only through the 'Field Slices' parameter wrap (case 4)
+	column Region
+		dataType: string
+		lineageTag: 85397e8a-8ad4-48dc-aa7c-6c275ab3a11e
+		summarizeBy: none
+		sourceColumn: Region
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Calculated column; references Amount directly and is referenced by nothing
+	column 'Amount Doubled' = Sales[Amount] * 2
+		dataType: int64
+		lineageTag: 8cbf77b5-c1ee-4e12-b03d-7ca158b1c96d
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Chain top; references Chain B (cycle leg, case 5) and starts the hidden chain (case 3)
+	measure 'Chain A' = [Chain B]
+		formatString: #,0
+		displayFolder: Fixture\Chain
+		lineageTag: 323953cf-dc3b-487f-b86f-fcb7d88c5d00
+
+	/// Chain middle; hidden; references Chain A (cycle leg) and Chain C (chain leg)
+	measure 'Chain B' = [Chain A] + [Chain C]
+		formatString: #,0
+		isHidden
+		displayFolder: Fixture\Chain
+		lineageTag: 4b186f1d-6de8-4cb1-9b08-40b2fc043611
+
+	/// Chain bottom; triple-backtick DAX body; references Amount
+	measure 'Chain C' = ```
+
+			SUM ( Sales[Amount] )
+
+			```
+		formatString: #,0
+		displayFolder: Fixture\Chain
+		lineageTag: c482f4ec-ff3e-4a79-9209-7fc40425721a
+
+	partition Sales = m
+		mode: import
+		source =
+				let
+				    Source = #table({"Amount", "Region"}, {})
+				in
+				    Source

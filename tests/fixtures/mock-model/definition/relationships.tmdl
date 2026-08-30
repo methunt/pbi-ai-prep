@@ -1,0 +1,3 @@
+relationship 40dd0332-cd67-44fb-8a63-739aa271a68a
+	fromColumn: Sales.Region
+	toColumn: Region.Region

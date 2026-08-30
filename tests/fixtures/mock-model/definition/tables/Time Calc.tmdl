@@ -1,0 +1,12 @@
+/// Synthetic calculation group; its item intentionally references no columns (case 1, orphaned).
+table 'Time Calc'
+	lineageTag: b4d7bf83-d6a1-4dad-8607-c23083e1faea
+
+	calculationGroup
+		precedence: 10
+
+		/// Passes the selected measure through unchanged; references nothing.
+		calculationItem 'No Calc'
+			expression = SELECTEDMEASURE()
+			ordinal: 1
+			lineageTag: da86d8ed-40a4-4df9-8c87-ab170a74628b

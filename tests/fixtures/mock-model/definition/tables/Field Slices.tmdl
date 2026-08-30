@@ -1,0 +1,61 @@
+/// Synthetic field parameter: row 0 wraps a live column (case 4), row 1 wraps a deleted column (case 2).
+table 'Field Slices'
+	isHidden
+	lineageTag: 0917c069-c173-407a-9732-21ec0b326313
+
+	/// Do not use in queries or reporting
+	column 'Field Slices'
+		isHidden
+		lineageTag: bb4ee2c0-ff65-41d9-a715-03828b3a2b14
+		summarizeBy: none
+		sourceColumn: [Value1]
+		sortByColumn: 'Field Slices Order'
+
+		relatedColumnDetails
+			groupByColumn: 'Field Slices Fields'
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Do not use in queries or reporting
+	column 'Field Slices Fields'
+		isHidden
+		lineageTag: d5667c9a-4530-4731-a3f1-857281847bfb
+		summarizeBy: none
+		sourceColumn: [Value2]
+
+		extendedProperty ParameterMetadata =
+				{
+				  "version": 3,
+				  "kind": 2
+				}
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Do not use in queries or reporting
+	column 'Field Slices Order'
+		isHidden
+		formatString: 0
+		lineageTag: 7b209786-5d35-472e-a739-dd1224531366
+		summarizeBy: sum
+		sourceColumn: [Value3]
+
+		annotation SummarizationSetBy = Automatic
+
+	/// Do not use in queries or reporting
+	column Name = 'Field Slices'[Field Slices]
+		isHidden
+		lineageTag: 3dc8daa4-20c4-4671-847c-5bdde7a7510b
+		summarizeBy: none
+
+		annotation SummarizationSetBy = Automatic
+
+	partition 'Field Slices' = calculated
+		mode: import
+		source =
+
+				{
+				    ("Region", NAMEOF(Sales[Region]), 0),
+				    ("Deleted", NAMEOF('Sales'[Deleted Column]), 1)
+				}
+
+	annotation PBI_Id = 49c3a68aa0fc49d8a3a4338a8481b351

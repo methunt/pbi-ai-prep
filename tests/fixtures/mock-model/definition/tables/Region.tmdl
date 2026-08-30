@@ -1,0 +1,20 @@
+/// Synthetic dimension providing the relationship edge (relationship columns are structural, not usage).
+table Region
+	lineageTag: 906e15ec-223e-4074-bd2a-491a2afe83a5
+
+	/// Region label; referenced only by the relationship, which is not counted as usage
+	column Region
+		dataType: string
+		lineageTag: e53c09ce-73bf-4e06-bae9-310a967f11a2
+		summarizeBy: none
+		sourceColumn: Region
+
+		annotation SummarizationSetBy = Automatic
+
+	partition Region = m
+		mode: import
+		source =
+				let
+				    Source = #table({"Region"}, {})
+				in
+				    Source
