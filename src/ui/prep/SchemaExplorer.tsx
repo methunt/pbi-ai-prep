@@ -68,7 +68,8 @@ export default function SchemaExplorer({ lsdl }: SchemaExplorerProps) {
         if (g.key.toLowerCase().includes(q)) return true
         return g.rows.some((r) => r.obj.name.toLowerCase().includes(q))
       })
-      .sort((a, b) => a.key.localeCompare(b.key))
+            // Mockup keeps the model's order (TABLES array), not alphabetical —
+      // alphabetising tables makes the AI-schema field order diverge.
   }, [rows, query])
 
   const includesFor = (list: AiObjectRow[]): { included: number; total: number } => {
