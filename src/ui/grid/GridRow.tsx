@@ -24,6 +24,9 @@ export interface GridRowProps {
   renameTo: string
   descChanged: boolean
   renameChanged: boolean
+  /** Current (pristine) object name — the Name column shows this, NOT the folded
+   *  new value, so a pending (staged, unapplied) rename never mutates it. */
+  displayName: string
   onCommitDescription: (obj: ModelObject, value: string) => void
   onCommitRename: (obj: ModelObject, value: string) => void
   onNavigate: (dir: NavDir) => void
@@ -41,6 +44,7 @@ function GridRow({
   renameTo,
   descChanged,
   renameChanged,
+  displayName,
   onCommitDescription,
   onCommitRename,
   onNavigate,
@@ -63,7 +67,7 @@ function GridRow({
           type="checkbox"
           className="accent-primary h-3.5 w-3.5 align-middle"
           checked={selected}
-          aria-label={`Select ${obj.name}${obj.hidden ? ' (hidden)' : ''}`}
+          aria-label={`Select ${displayName}${obj.hidden ? ' (hidden)' : ''}`}
           onChange={() => onToggleSelect(obj.id)}
           onClick={(e) => e.stopPropagation()}
         />
@@ -74,7 +78,7 @@ function GridRow({
           type="button"
           className="hov btn btn-ghost !p-1"
           title="Open in Lineage"
-          aria-label={`Open ${obj.name} in Lineage`}
+          aria-label={`Open ${displayName} in Lineage`}
           disabled
           onClick={(e) => e.stopPropagation()}
         >
@@ -94,7 +98,7 @@ function GridRow({
       </div>
 
       <div role="gridcell" data-col="name" className="grid-cell font-semibold">
-        <span className="truncate">{obj.name}</span>
+        <span className="truncate">{displayName}</span>
         {obj.hidden && <span className="pill t-slate !text-[9px] flex-none">hidden</span>}
       </div>
 

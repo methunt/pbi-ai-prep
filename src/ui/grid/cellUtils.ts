@@ -48,10 +48,22 @@ export function descriptionFor(o: { id: string; description?: string }, journal:
   return typeof staged === 'string' ? staged : o.description ?? ''
 }
 
-/** The staged rename-to value for an object, or `''` when nothing staged. */
-export function renameToFor(o: { id: string }, journal: readonly JournalRecord[]): string {
-  const staged = journalValueFor(journal, o.id, 'renameTo')
+/** The PENDING new name for an object (a staged field:'name' edit), or `''` when none. */
+export function pendingRenameFor(o: { id: string }, journal: readonly JournalRecord[]): string {
+  const staged = journalValueFor(journal, o.id, 'name')
   return typeof staged === 'string' ? staged : ''
+}
+
+/** The recordId of a staged field:'name' edit for an object, or `undefined`. */
+export function pendingRenameRecordId(
+  journal: readonly JournalRecord[],
+  objectId: string,
+): string | undefined {
+  for (let i = journal.length - 1; i >= 0; i--) {
+    const r = journal[i]
+    if (r.kind === 'field' && r.objectId === objectId && r.field === 'name') return r.recordId
+  }
+  return undefined
 }
 
 /** FR-9 used-pill class: 0 → light-blue highlight, 1–5 grey, 6+ grey strong. */

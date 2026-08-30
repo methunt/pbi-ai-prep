@@ -17,7 +17,7 @@ import GridRow from './GridRow'
 import Heading from './Heading'
 import Pagination from './Pagination'
 import FilterBar from './FilterBar'
-import { descriptionFor, hasJournalEdit, renameToFor } from './cellUtils'
+import { descriptionFor, hasJournalEdit, pendingRenameFor, pendingRenameRecordId } from './cellUtils'
 import type { ModelObject, ObjectType } from '../../domain/objects'
 
 const hasDescription = (o: { description?: string }): boolean =>
@@ -34,9 +34,11 @@ export default function ObjectGrid() {
   const setSort = useStore((s) => s.setSort)
   const setPage = useStore((s) => s.setPage)
   const journalAdd = useStore((s) => s.journalAdd)
+  const journalDiscard = useStore((s) => s.journalDiscard)
   const toggleSelect = useStore((s) => s.toggleSelect)
   const shiftSelectRange = useStore((s) => s.shiftSelectRange)
   const selectAllMatching = useStore((s) => s.selectAllMatching)
+  const pristine = useStore((s) => s.pristine)
 
   const readOnly = permission !== 'granted'
   const scrollRef = useRef<HTMLDivElement | null>(null)
@@ -60,6 +62,11 @@ export default function ObjectGrid() {
   const pageRows = derived.slice(start, start + pageSize)
   const pageRowsRef = useRef(pageRows)
   pageRowsRef.current = pageRows
+  const pristineById = useMemo(() => new Map(pristine.map((o) => [o.id, o])), [pristine])
+  const pristineByIdRef = useRef(pristineById)
+  pristineByIdRef.current = pristineById
+  const journalRef = useRef(journal)
+  journalRef.current = journal
 
   const virtualizer = useVirtualizer({
     count: pageRows.length,
@@ -208,17 +215,26 @@ export default function ObjectGrid() {
 
   const commitRename = useCallback(
     (obj: ModelObject, value: string) => {
+      const pristineName = pristineByIdRef.current.get(obj.id)?.name ?? obj.name
+      // Clearing the rename or leaving it unchanged un-stages it (revert to pristine).
+      if (value.trim() === '' || value === pristineName) {
+        const recordId = pendingRenameRecordId(journalRef.current, obj.id)
+        if (recordId) journalDiscard(recordId)
+        return
+      }
+      // Renames are staged as `field:'name'` (the write-planner's planRename path);
+      // `old` is the pristine name, recomputed by the domain fold.
       journalAdd({
         kind: 'field',
         objectId: obj.id,
         file: obj.file,
         context: 'user',
-        field: 'renameTo',
+        field: 'name',
         new: value,
-        old: undefined,
+        old: pristineName,
       })
     },
-    [journalAdd],
+    [journalAdd, journalDiscard],
   )
 
   return (
@@ -270,9 +286,10 @@ export default function ObjectGrid() {
                     selected={selectedIds.includes(obj.id)}
                     readOnly={readOnly}
                     description={descriptionFor(obj, journal)}
-                    renameTo={renameToFor(obj, journal)}
+                    renameTo={pendingRenameFor(obj, journal)}
+                    displayName={pristineById.get(obj.id)?.name ?? obj.name}
                     descChanged={hasJournalEdit(journal, obj.id, 'description')}
-                    renameChanged={hasJournalEdit(journal, obj.id, 'renameTo')}
+                    renameChanged={hasJournalEdit(journal, obj.id, 'name')}
                     onCommitDescription={commitDescription}
                     onCommitRename={commitRename}
                     onNavigate={onNavigate}
