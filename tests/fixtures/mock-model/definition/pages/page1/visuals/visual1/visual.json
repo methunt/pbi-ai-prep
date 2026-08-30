@@ -1,0 +1,52 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/item/report/definition/visualContainer/2.0.0/schema.json",
+  "name": "951df667-144c-4044-9601-8293c05f7a16",
+  "position": {
+    "x": 0,
+    "y": 0,
+    "width": 720,
+    "height": 720,
+    "z": 0
+  },
+  "visual": {
+    "visualType": "tableEx",
+    "query": {
+      "queryState": {
+        "Values": {
+          "projections": [
+            {
+              "field": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Field Slices"
+                    }
+                  },
+                  "Property": "Field Slices"
+                }
+              },
+              "queryRef": "Field Slices.Field Slices",
+              "active": true
+            }
+          ],
+          "fieldParameters": [
+            {
+              "parameterExpr": {
+                "Column": {
+                  "Expression": {
+                    "SourceRef": {
+                      "Entity": "Field Slices"
+                    }
+                  },
+                  "Property": "Field Slices"
+                }
+              },
+              "index": 0,
+              "length": 1
+            }
+          ]
+        }
+      }
+    }
+  }
+}
