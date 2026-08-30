@@ -43,6 +43,14 @@
   --color-foreground: hsl(210 40% 98%);
   --color-secondary: hsl(217 33% 15%);
   --color-muted: hsl(217 33% 15%);
+  /* These 4 were missing: they silently fell back to their LIGHT values,
+     making every card/row/chip border near-invisible against the dark
+     background (the "dark mode — can't see anything" bug) and every sky/
+     cyan/emerald accent read muddy instead of the mockup's brightened hues. */
+  --color-border: hsl(217 28% 22%);
+  --color-sky: hsl(199 89% 62%);
+  --color-cyan: hsl(188 86% 58%);
+  --color-emerald: hsl(160 70% 52%);
   --color-amber: hsl(46 96% 70%);
   --color-destructive: hsl(0 72% 51%);
   --color-popover: hsl(217 33% 22%);
@@ -237,6 +245,11 @@ body {
     color: var(--color-foreground);
     transition: border-color 130ms ease, box-shadow 130ms ease;
   }
+  /* Native <option> list padding (Chromium/Edge respect this) — the FilterBar
+     type/table dropdowns otherwise render text flush against the list edge. */
+  .chip select option {
+    padding: 6px 10px;
+  }
   .field::placeholder {
     color: color-mix(in srgb, var(--color-foreground) 45%, transparent);
   }
@@ -404,15 +417,14 @@ body {
   .grid-row {
     display: grid;
     grid-template-columns:
-      40px 40px
-      minmax(90px, 0.8fr)
-      minmax(110px, 1fr)
-      minmax(140px, 1.5fr)
-      160px
-      96px
-      minmax(200px, 2.4fr)
-      150px;
-    min-width: 1026px;
+      36px 32px
+      minmax(64px, 0.7fr)
+      minmax(70px, 0.9fr)
+      minmax(100px, 1.4fr)
+      140px
+      88px
+      minmax(140px, 2.2fr)
+      minmax(90px, 1fr);
   }
      /* The whole header row sticks inside the scroll container (mockup thead). */
    .grid-head {
@@ -602,6 +614,15 @@ body {
   .tip:hover .tip-body { opacity: 1; }
   .tip:focus-within .tip-body { opacity: 1; }
   .dax-tip {
+    /* Right-anchored, opens BELOW the trigger (mockup: `!left-auto !right-0
+       !translate-x-0`) — the DAX column sits at the far right/bottom of a
+       row, so an upward centered tooltip has nowhere to go but under the
+       sticky header, which is the "overlaps the header" bug. */
+    top: calc(100% + 8px);
+    bottom: auto;
+    left: auto;
+    right: 0;
+    transform: none;
     white-space: pre-wrap !important;
     text-align: left;
     font-size: 11px;
@@ -612,6 +633,9 @@ body {
     overflow: auto;
     pointer-events: auto;
     tab-size: 2;
+  }
+  .dax-tip::after {
+    display: none;
   }
 
   /* ---------- modal (mockup .scrim / .fade-up; AD-11 focus) ---------- */

@@ -13,7 +13,10 @@ import { ChevronRight, Search } from 'lucide-react'
 import { useStore } from '../../state/store'
 import type { LSDL, LSdlTerm } from '../../parse/lsdl-reader'
 import type { ModelObject } from '../../domain/objects'
+import type { Usage } from '../../domain/graph'
 import SynonymChips from './SynonymChips'
+import { TYPE_META } from '../grid/typeMeta'
+import { usedClass } from '../grid/cellUtils'
 import {
   buildAiRows,
   groupKeyOf,
@@ -201,6 +204,7 @@ export default function SchemaExplorer({ lsdl }: SchemaExplorerProps) {
               onAddTerm={(obj, terms) => stageTerms(obj, terms)}
               onRemoveTerm={(obj, terms) => stageTerms(obj, terms)}
               dependentNames={dependentNames}
+              usageFor={(row) => graph.usage(row.obj.id)}
               includesFor={includesFor}
               synonymTotalFor={synonymTotalFor}
             />
@@ -221,6 +225,7 @@ interface TableGroupRowProps {
   onAddTerm(obj: ModelObject, terms: LSdlTerm[]): void
   onRemoveTerm(obj: ModelObject, terms: LSdlTerm[]): void
   dependentNames(row: AiObjectRow): ModelObject[]
+  usageFor(row: AiObjectRow): Usage
   includesFor(list: AiObjectRow[]): { included: number; total: number }
   synonymTotalFor(list: AiObjectRow[]): number
 }
@@ -235,6 +240,7 @@ function TableGroupRow({
   onAddTerm,
   onRemoveTerm,
   dependentNames,
+  usageFor,
   includesFor,
   synonymTotalFor,
 }: TableGroupRowProps) {
@@ -244,38 +250,48 @@ function TableGroupRow({
 
   return (
     <div className="border-b border-border">
-      <div className="flex items-center gap-2.5 px-4 py-3 hover:bg-primary/5">
-        <button
-          type="button"
-          className="flex flex-none items-center gap-2.5"
-          onClick={onToggleExpand}
-          aria-expanded={expanded}
-          aria-label={`${group.key} table`}
-        >
-          <ChevronRight
-            className={`h-4 w-4 text-foreground/50 transition-transform ${expanded ? 'rotate-90' : ''}`}
-            strokeWidth={2.2}
-            aria-hidden="true"
-          />
-          <span
-            className={`h-2.5 w-2.5 flex-none rounded-full ${
-              allExcluded ? 'bg-foreground/30' : 'bg-primary'
-            }`}
-            aria-label={allExcluded ? 'All fields excluded' : 'Some fields included'}
-            title={allExcluded ? 'All fields excluded' : 'Some fields included'}
-          />
-          <span className="text-[13px] font-semibold">{group.key}</span>
-        </button>
+      <div
+        className="flex cursor-pointer items-center gap-2.5 px-4 py-3 hover:bg-primary/5"
+        role="button"
+        tabIndex={0}
+        onClick={onToggleExpand}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            onToggleExpand()
+          }
+        }}
+        aria-expanded={expanded}
+        aria-label={`${group.key} table`}
+      >
+        <ChevronRight
+          className={`h-4 w-4 flex-none text-foreground/50 transition-transform ${expanded ? 'rotate-90' : ''}`}
+          strokeWidth={2.2}
+          aria-hidden="true"
+        />
+        <span
+          className={`h-2.5 w-2.5 flex-none rounded-full ${
+            allExcluded ? 'bg-foreground/30' : 'bg-primary'
+          }`}
+          aria-hidden="true"
+        />
+        <span className="text-[13px] font-semibold">{group.key}</span>
         <span className="pill pill-flat t-slate mono !text-[10px]">
           {total} field{total === 1 ? '' : 's'}
         </span>
-        <span className={`pill pill-flat mono !text-[10px] ${allExcluded ? 't-slate' : 't-amber'}`}>
+        <span
+          className={`pill pill-flat mono !text-[10px] ${
+            allExcluded ? 't-slate' : included === total ? 't-cyan' : 't-amber'
+          }`}
+        >
           {included}/{total} in AI
         </span>
-        <span className="pill pill-flat t-cyan mono !text-[10px]">
-          {synonymTotal} synonym{synonymTotal === 1 ? '' : 's'}
-        </span>
-        <div className="ml-auto flex flex-none items-center gap-1.5">
+        {synonymTotal > 0 && (
+          <span className="pill pill-flat t-sky mono !text-[10px]">
+            {synonymTotal} synonym{synonymTotal === 1 ? '' : 's'}
+          </span>
+        )}
+        <div className="ml-auto flex flex-none items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button type="button" className="btn btn-outline btn-sm" disabled={readOnly} onClick={() => onStageVisibility(false)}>
             Include all
           </button>
@@ -286,7 +302,7 @@ function TableGroupRow({
       </div>
 
       {expanded && (
-        <div className="border-t border-border bg-secondary/20 px-4 py-3">
+        <div className="border-t border-border bg-secondary/20">
           <div className="flex flex-col divide-y divide-border/60">
             {group.rows.map((row) => (
               <FieldRow
@@ -294,6 +310,7 @@ function TableGroupRow({
                 row={row}
                 readOnly={readOnly}
                 dependents={dependentNames(row)}
+                usage={usageFor(row)}
                 onToggleInclude={() => onStageField(row, !row.hidden)}
                 onAddTerm={(terms) => onAddTerm(row.obj, terms)}
                 onRemoveTerm={(terms) => onRemoveTerm(row.obj, terms)}
@@ -310,12 +327,13 @@ interface FieldRowProps {
   row: AiObjectRow
   readOnly: boolean
   dependents: ModelObject[]
+  usage: Usage
   onToggleInclude(): void
   onAddTerm(terms: LSdlTerm[]): void
   onRemoveTerm(terms: LSdlTerm[]): void
 }
 
-function FieldRow({ row, readOnly, dependents, onToggleInclude, onAddTerm, onRemoveTerm }: FieldRowProps) {
+function FieldRow({ row, readOnly, dependents, usage, onToggleInclude, onAddTerm, onRemoveTerm }: FieldRowProps) {
   const liveTermsCount = liveTerms(row.terms).length
 
   // A widened reach change: excluding (hiding) a field that included objects
@@ -334,14 +352,17 @@ function FieldRow({ row, readOnly, dependents, onToggleInclude, onAddTerm, onRem
   // Mockup field row (single line): [type-dot + type] [name ~190px + Used/not
   // reachable] [synonym chips — inline flex-wrap, flex-1] [switch — right].
   return (
-    <div className="flex items-start gap-2.5 py-2.5">
-      <span className="type-cell mt-0.5 flex-none">
-        <span className="type-dot" aria-hidden="true" />
-        {row.obj.type}
+    <div className="flex items-start gap-2.5 py-2.5 pl-11 pr-4">
+      <span className={`type-cell mt-0.5 flex-none`}>
+        <span className={`type-dot ${TYPE_META[row.obj.type].dot}`} aria-hidden="true" />
+        {TYPE_META[row.obj.type].label}
       </span>
       <div className="min-w-0 w-[190px] flex-none">
         <div className="truncate text-[12.5px] font-semibold">{row.obj.name}</div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/55">
+          <span className={`pill pill-flat ${usedClass(usage.total)} mono !text-[9.5px]`}>
+            {usage.total === 0 ? 'Unused' : `Used ${usage.total}`}
+          </span>
           {row.hidden && <span className="opacity-70">not reachable</span>}
         </div>
       </div>

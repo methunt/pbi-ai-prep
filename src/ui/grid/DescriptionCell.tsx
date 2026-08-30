@@ -118,6 +118,7 @@ export default function DescriptionCell({
       <button
         type="button"
         className={`desc-text min-w-0 flex-1 ${value ? '' : 'italic text-amber'}`}
+        title={value ? collapseLines(value) : undefined}
         aria-label={
           value
             ? `Edit description: ${collapseLines(value)}`

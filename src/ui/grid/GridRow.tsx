@@ -102,11 +102,11 @@ function GridRow({
       </div>
 
       <div role="gridcell" data-col="table" className="grid-cell text-foreground/55">
-        <span className="truncate">{obj.table || '—'}</span>
+        <span className="truncate" title={obj.table || undefined}>{obj.table || '—'}</span>
       </div>
 
       <div role="gridcell" data-col="name" className="grid-cell font-semibold">
-        <span className="truncate">{displayName}</span>
+        <span className="truncate" title={displayName}>{displayName}</span>
         {obj.hidden && <span className="pill t-slate !text-[9px] flex-none">hidden</span>}
       </div>
 

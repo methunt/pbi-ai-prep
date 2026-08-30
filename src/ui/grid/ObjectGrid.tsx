@@ -280,14 +280,14 @@ export default function ObjectGrid() {
       <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-card">
       <div
         ref={scrollRef}
-        className="min-h-0 flex-1 overflow-auto"
+        className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto"
         role="grid"
         aria-rowcount={pageRows.length + 1}
         aria-colcount={COLUMN_COUNT}
         aria-label="Model objects"
         onKeyDown={onGridKeyDown}
       >
-        <div className="min-w-[1026px]">
+        <div>
           <Heading sort={filters.sort} onSort={onSort} />
           <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
             {virtualItems.map((vi) => {
