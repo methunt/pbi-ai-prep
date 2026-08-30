@@ -74,7 +74,12 @@ export default function ParseStepper() {
       const layer = layers.objects
       return {
         ...stage,
-        state: layer.parseState,
+                // `layers.objects` is not always committed to the store until the
+        // broker settles, so a missing layer must still read as IN PROGRESS
+        // while the stepper is on screen (the stepper only renders during the
+        // primary parse). This guarantees the spinner animates instead of a
+        // frozen idle circle + '0'.
+        state: layer ? layer.parseState : objectCount > 0 ? 'ready' : 'parsing',
         count: objectCount,
       }
     }
