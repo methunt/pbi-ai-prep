@@ -16,7 +16,7 @@ import { byteLen } from '../domain/span'
 import type { Span } from '../domain/span'
 
 /** One source line: byte range including its terminator, plus the content. */
-interface LineEntry {
+export interface LineEntry {
   /** Byte offset of the line's first byte. */
   byteStart: number
   /** Byte offset one past the line's last byte (terminator included). */
@@ -30,8 +30,12 @@ interface LineEntry {
  * accumulated in a single pass. A `\r` immediately before `\n` counts as part
  * of the terminator (CRLF); a lone `\r` is content. Pure per call — inputs are
  * small TMDL sources.
+ *
+ * Exported for the 4.2 write planner, which must re-locate line structure
+ * (block extents, property lines, M steps) against the SAME byte conventions
+ * the reader's recorded spans use — one line-table implementation, no drift.
  */
-function lineTable(text: string): LineEntry[] {
+export function lineTable(text: string): LineEntry[] {
   const lines: LineEntry[] = []
   let byteStart = 0
   let i = 0
@@ -48,6 +52,16 @@ function lineTable(text: string): LineEntry[] {
     i = nl + 1
   }
   return lines
+}
+
+/**
+ * Indentation prefix (leading whitespace) of a line's content. Exported with
+ * `lineTable` for the write planner's block-extent and indentation work.
+ */
+export function indentOf(content: string): string {
+  let i = 0
+  while (i < content.length && isBlankChar(content[i])) i++
+  return content.slice(0, i)
 }
 
 /** Blank char within a line (line content never contains `\n`). */
@@ -107,13 +121,6 @@ export function locateDeclaration(text: string, line: number): Span {
     throw new RangeError(`line ${line} out of range: 0..${lines.length - 1}`)
   }
   return { start: lines[line].byteStart, end: lines[line].byteEnd }
-}
-
-/** Indentation prefix (leading whitespace) of a line's content. */
-function indentOf(content: string): string {
-  let i = 0
-  while (i < content.length && isBlankChar(content[i])) i++
-  return content.slice(0, i)
 }
 
 /**
