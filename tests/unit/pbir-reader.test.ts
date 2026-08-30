@@ -289,3 +289,37 @@ describe('parseReport — extraction surfaces (real PBIR shapes)', () => {
     expect(parsed.errors[0]!.file).toBe('definition/pages/p1/visuals/bad/visual.json')
   })
 })
+describe('parseReport — verified answers (FR-18)', () => {
+  it('extracts frozen question-to-visual pairs from VerifiedAnswers/definitions/<guid>/definition.json', () => {
+    // The cache key is base64 of a percent-encoded visualType JSON, exactly as
+    // Power BI writes it.
+    const cacheKey = btoa(encodeURIComponent(JSON.stringify({ visualType: 'barChart' })))
+    const definition = JSON.stringify({
+      triggerPrompts: [{ prompt: 'Which SORs have the highest platform cost?' }, { prompt: 'How is it split?' }],
+      sourceMetadata: { visualMetadata: { cache: { key: cacheKey } } },
+    })
+    const reportFiles = new Map([
+      ['Report/VerifiedAnswers/definitions/da98c774-9580-4738-8424-edd37ff7b7e2/definition.json', definition],
+    ])
+    const parsed = parseReport(reportFiles, model.objects)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.verifiedAnswers).toEqual([
+      {
+        guid: 'da98c774-9580-4738-8424-edd37ff7b7e2',
+        prompt: 'Which SORs have the highest platform cost?',
+        visualType: 'barChart',
+        otherPrompts: 1,
+      },
+    ])
+    // Verified-answer files never contribute visual edges.
+    expect(parsed!.visualEdges).toEqual([])
+  })
+
+  it('leaves verifiedAnswers empty when a definition has no usable prompt or none is present', () => {
+    const noPrompt = parseReport(
+      new Map([['Report/VerifiedAnswers/definitions/g1/definition.json', JSON.stringify({ triggerPrompts: [] })]]),
+      model.objects,
+    )
+    expect(noPrompt!.verifiedAnswers).toEqual([])
+  })
+})

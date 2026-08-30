@@ -19,6 +19,7 @@
   --color-sky: hsl(199 89% 48%);
   --color-cyan: hsl(188 94% 43%);
   --color-emerald: hsl(160 84% 39%);
+  --color-amber: hsl(38 92% 50%);
   /* Destructive red (FR-31/FR-33) — the ONLY red in the palette; used for the
      Delete action and name-collision warnings. Not violet/purple. */
   --color-destructive: hsl(0 84% 60%);
@@ -42,6 +43,7 @@
   --color-foreground: hsl(210 40% 98%);
   --color-secondary: hsl(217 33% 15%);
   --color-muted: hsl(217 33% 15%);
+  --color-amber: hsl(46 96% 70%);
   --color-destructive: hsl(0 72% 51%);
   --color-popover: hsl(217 33% 22%);
   color-scheme: dark;

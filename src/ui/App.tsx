@@ -19,7 +19,8 @@ import ParseStepper from './chrome/ParseStepper'
 import ThemeToggle from './chrome/ThemeToggle'
 import KpiCard, { type KpiTone } from './chrome/KpiCard'
 import ObjectGrid from './grid/ObjectGrid'
-import { useStore } from '../state/store'
+import PrepForAi from './prep/PrepForAi'
+import { useStore, type Kpi } from '../state/store'
 
 type TabId = 'desc' | 'ai' | 'rel'
 
@@ -87,6 +88,208 @@ if (import.meta.env.DEV) {
   devWindow.__pbiStore = useStore
 }
 
+interface AppShellProps {
+  readOnly: boolean
+  projectName: string
+  kpi: Kpi
+  activeTab: TabId
+  setActiveTab(tab: TabId): void
+  tabRefs: { current: Record<TabId, HTMLButtonElement | null> }
+}
+
+/**
+ * The app shell once a project is loaded. DEFINED AT MODULE SCOPE: defining it
+ * inside App would mint a fresh component type on every App render, which
+ * unmounts and remounts the whole shell on any store write — resetting the
+ * prep sub-tab and the schema explorer's expansion on every edit.
+ */
+function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs }: AppShellProps) {
+  const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, id: TabId) => {
+    const idx = TAB_IDS.indexOf(id)
+    let next = idx
+    if (e.key === 'ArrowRight') next = (idx + 1) % TAB_IDS.length
+    else if (e.key === 'ArrowLeft') next = (idx - 1 + TAB_IDS.length) % TAB_IDS.length
+    else if (e.key === 'Home') next = 0
+    else if (e.key === 'End') next = TAB_IDS.length - 1
+    else return
+    e.preventDefault()
+    const target = TAB_IDS[next]
+    setActiveTab(target)
+    tabRefs.current[target]?.focus()
+  }
+
+  const kpiValue = (id: keyof typeof kpi) => kpi[id]
+  const cardValue = (card: DescCard) => {
+    switch (card.tone) {
+      case 'blue':
+        return kpiValue('total')
+      case 'amber':
+        return kpiValue('missingDescription')
+      case 'sky':
+        return kpiValue('unused')
+      case 'cyan':
+        return kpiValue('pendingEdits')
+      case 'emerald':
+        return (
+          <>
+            {kpi.coverage}
+            <span className="text-[15px] font-semibold text-foreground/55">%</span>
+          </>
+        )
+    }
+  }
+
+  return (
+    <div className="flex h-full w-full flex-col">
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:text-primary-foreground"
+      >
+        Skip to content
+      </a>
+
+      <header className="flex h-[52px] flex-none items-center gap-3 border-b border-border bg-card px-4">
+        <div className="flex items-center gap-2.5">
+          <div
+            className="flex h-7 w-7 flex-none items-center justify-center rounded-lg"
+            style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-sky))' }}
+          >
+            <ChartSpline className="h-4 w-4 text-primary-foreground" aria-hidden="true" />
+          </div>
+          <span className="hidden text-[13.5px] font-bold tracking-tight sm:block">PBI AI Prep</span>
+        </div>
+
+        <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
+
+        <button type="button" className="chip gap-2 !bg-secondary !border-transparent">
+          <FolderOpen className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
+          <span className="max-w-[190px] truncate text-[12px] font-semibold text-foreground">
+            {projectName}
+          </span>
+          <span className="pill t-emerald ml-0.5 !text-[10px]">live</span>
+        </button>
+
+        <nav className="mx-auto flex items-center gap-1" role="tablist" aria-label="Model surfaces">
+          {TABS.map((tab) => {
+            const selected = activeTab === tab.id
+            return (
+              <button
+                key={tab.id}
+                ref={(el) => {
+                  tabRefs.current[tab.id] = el
+                }}
+                type="button"
+                role="tab"
+                id={`tab-${tab.id}`}
+                aria-selected={selected}
+                aria-controls={`panel-${tab.id}`}
+                tabIndex={selected ? 0 : -1}
+                className="tab"
+                onClick={() => setActiveTab(tab.id)}
+                onKeyDown={(e) => onTabKeyDown(e, tab.id)}
+              >
+                <tab.icon className="h-4 w-4" strokeWidth={2.1} aria-hidden="true" />
+                {tab.label}
+                {tab.id === 'desc' && (
+                  <span className="mono pill pill-flat t-slate !text-[10px]">{kpiValue('total')}</span>
+                )}
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="flex items-center gap-2">
+          <span className={`text-[11px] ${readOnly ? 'text-amber' : 'text-foreground/55'}`}>
+            {readOnly ? 'Read-only' : `${kpi.pendingEdits} pending`}
+          </span>
+          <button type="button" className="btn btn-primary btn-sm" disabled={readOnly}>
+            <Save className="h-3.5 w-3.5" strokeWidth={2.3} aria-hidden="true" />
+            Save
+          </button>
+          <ThemeToggle />
+        </div>
+      </header>
+
+      {readOnly && (
+        <div className="flex items-center gap-2 border-b border-amber/24 bg-amber/9 px-4 py-2 text-[11.5px] text-foreground/70">
+          <TriangleAlert className="h-3.5 w-3.5 flex-none text-amber" aria-hidden="true" />
+          Write access was declined — the model is read-only. Save and edit controls are
+          disabled; everything stays visible for review.
+        </div>
+      )}
+
+      <main id="main" className="flex min-h-0 flex-1 flex-col">
+        {/* Description & Update */}
+        <section
+          role="tabpanel"
+          id="panel-desc"
+          aria-labelledby="tab-desc"
+          hidden={activeTab !== 'desc'}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="grid flex-none grid-cols-2 gap-3 px-4 pt-3.5 pb-3 lg:grid-cols-5">
+            {DESC_CARDS.map((card, i) => (
+              <KpiCard
+                key={card.label}
+                label={card.label}
+                tone={card.tone}
+                icon={<card.icon className="h-4 w-4" strokeWidth={2.3} aria-hidden="true" />}
+                value={cardValue(card)}
+                definition={card.text}
+                progress={card.tone === 'emerald' ? kpi.coverage : null}
+                className={i === 4 ? 'col-span-2 lg:col-span-1' : ''}
+              />
+            ))}
+          </div>
+          <ObjectGrid />
+        </section>
+
+        {/* Prep for AI */}
+        <section
+          role="tabpanel"
+          id="panel-ai"
+          aria-labelledby="tab-ai"
+          hidden={activeTab !== 'ai'}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <PrepForAi />
+        </section>
+
+        {/* Relationships */}
+        <section
+          role="tabpanel"
+          id="panel-rel"
+          aria-labelledby="tab-rel"
+          hidden={activeTab !== 'rel'}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-8 text-center">
+            <div className="mb-1 text-[13px] font-semibold text-foreground/70">
+              Relationships lands in step 7.5
+            </div>
+            <div className="max-w-[46ch] text-[12px] text-foreground/55">
+              The column-level lineage graph, focus inspector and upstream/downstream reads render
+              here.
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className="flex h-8 flex-none items-center gap-3 border-t border-border bg-card px-4 text-[11px] text-foreground/55">
+        <span className="flex items-center gap-1.5">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
+          chromium · file-system-access
+        </span>
+        <span className="opacity-40">·</span>
+        <span className="mono">TMDL 4.2.0</span>
+        <span className="opacity-40">·</span>
+        <span className="mono">UTF-8 · CRLF</span>
+        <span className="ml-auto mono">v1.0.0</span>
+      </footer>
+    </div>
+  )
+}
+
 export default function App() {
   const projectName = useStore((s) => s.project.name)
   const kpi = useStore((s) => s.kpi)
@@ -113,217 +316,22 @@ export default function App() {
 
   const openFolder = () => setPhase('parse')
 
-  const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, id: TabId) => {
-    const idx = TAB_IDS.indexOf(id)
-    let next = idx
-    if (e.key === 'ArrowRight') next = (idx + 1) % TAB_IDS.length
-    else if (e.key === 'ArrowLeft') next = (idx - 1 + TAB_IDS.length) % TAB_IDS.length
-    else if (e.key === 'Home') next = 0
-    else if (e.key === 'End') next = TAB_IDS.length - 1
-    else return
-    e.preventDefault()
-    const target = TAB_IDS[next]
-    setActiveTab(target)
-    tabRefs.current[target]?.focus()
-  }
-
-  const kpiValue = (id: keyof typeof kpi) => kpi[id]
-
   let body
   if (hasProject) {
-    body = <AppShell readOnly={readOnly} />
+    body = (
+      <AppShell
+        readOnly={readOnly}
+        projectName={projectName}
+        kpi={kpi}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        tabRefs={tabRefs}
+      />
+    )
   } else if (phase === 'parse' || layersActive) {
     body = <ParseStepper />
   } else {
     body = <Landing onOpened={openFolder} />
-  }
-
-  function AppShell({ readOnly }: { readOnly: boolean }) {
-    return (
-      <div className="flex h-full w-full flex-col">
-        <a
-          href="#main"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-lg focus:bg-primary focus:px-3 focus:py-2 focus:text-sm focus:text-primary-foreground"
-        >
-          Skip to content
-        </a>
-
-        <header className="flex h-[52px] flex-none items-center gap-3 border-b border-border bg-card px-4">
-          <div className="flex items-center gap-2.5">
-            <div
-              className="flex h-7 w-7 flex-none items-center justify-center rounded-lg"
-              style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-sky))' }}
-            >
-              <ChartSpline className="h-4 w-4 text-primary-foreground" aria-hidden="true" />
-            </div>
-            <span className="hidden text-[13.5px] font-bold tracking-tight sm:block">PBI AI Prep</span>
-          </div>
-
-          <div className="mx-1 hidden h-5 w-px bg-border sm:block" />
-
-          <button type="button" className="chip gap-2 !bg-secondary !border-transparent">
-            <FolderOpen className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
-            <span className="max-w-[190px] truncate text-[12px] font-semibold text-foreground">
-              {projectName}
-            </span>
-            <span className="pill t-emerald ml-0.5 !text-[10px]">live</span>
-          </button>
-
-          <nav
-            className="mx-auto flex items-center gap-1"
-            role="tablist"
-            aria-label="Model surfaces"
-          >
-            {TABS.map((tab) => {
-              const selected = activeTab === tab.id
-              return (
-                <button
-                  key={tab.id}
-                  ref={(el) => {
-                    tabRefs.current[tab.id] = el
-                  }}
-                  type="button"
-                  role="tab"
-                  id={`tab-${tab.id}`}
-                  aria-selected={selected}
-                  aria-controls={`panel-${tab.id}`}
-                  tabIndex={selected ? 0 : -1}
-                  className="tab"
-                  onClick={() => setActiveTab(tab.id)}
-                  onKeyDown={(e) => onTabKeyDown(e, tab.id)}
-                >
-                  <tab.icon className="h-4 w-4" strokeWidth={2.1} aria-hidden="true" />
-                  {tab.label}
-                  {tab.id === 'desc' && (
-                    <span className="mono pill pill-flat t-slate !text-[10px]">{kpiValue('total')}</span>
-                  )}
-                </button>
-              )
-            })}
-          </nav>
-
-          <div className="flex items-center gap-2">
-            <span
-              className={`text-[11px] ${
-                readOnly ? 'text-amber' : 'text-foreground/55'
-              }`}
-            >
-              {readOnly ? 'Read-only' : `${kpi.pendingEdits} pending`}
-            </span>
-            <button type="button" className="btn btn-primary btn-sm" disabled={readOnly}>
-              <Save className="h-3.5 w-3.5" strokeWidth={2.3} aria-hidden="true" />
-              Save
-            </button>
-            <ThemeToggle />
-          </div>
-        </header>
-
-        {readOnly && (
-          <div className="flex items-center gap-2 border-b border-amber/24 bg-amber/9 px-4 py-2 text-[11.5px] text-foreground/70">
-            <TriangleAlert className="h-3.5 w-3.5 flex-none text-amber" aria-hidden="true" />
-            Write access was declined — the model is read-only. Save and edit controls are
-            disabled; everything stays visible for review.
-          </div>
-        )}
-
-        <main id="main" className="flex min-h-0 flex-1 flex-col">
-          {/* Description & Update */}
-          <section
-            role="tabpanel"
-            id="panel-desc"
-            aria-labelledby="tab-desc"
-            hidden={activeTab !== 'desc'}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <div className="grid flex-none grid-cols-2 gap-3 px-4 pt-3.5 pb-3 lg:grid-cols-5">
-              {DESC_CARDS.map((card, i) => (
-                <KpiCard
-                  key={card.label}
-                  label={card.label}
-                  tone={card.tone}
-                  icon={<card.icon className="h-4 w-4" strokeWidth={2.3} aria-hidden="true" />}
-                  value={cardValue(card)}
-                  definition={card.text}
-                  progress={card.tone === 'emerald' ? kpi.coverage : null}
-                  className={i === 4 ? 'col-span-2 lg:col-span-1' : ''}
-                />
-              ))}
-            </div>
-            <ObjectGrid />
-          </section>
-
-          {/* Prep for AI */}
-          <section
-            role="tabpanel"
-            id="panel-ai"
-            aria-labelledby="tab-ai"
-            hidden={activeTab !== 'ai'}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-8 text-center">
-              <div className="mb-1 text-[13px] font-semibold text-foreground/70">
-                Prep for AI lands in step 7.4
-              </div>
-              <div className="max-w-[46ch] text-[12px] text-foreground/55">
-                AI instructions, the data schema & synonym writer, budget and the verified-answers
-                list render here.
-              </div>
-            </div>
-          </section>
-
-          {/* Relationships */}
-          <section
-            role="tabpanel"
-            id="panel-rel"
-            aria-labelledby="tab-rel"
-            hidden={activeTab !== 'rel'}
-            className="flex min-h-0 flex-1 flex-col"
-          >
-            <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-8 text-center">
-              <div className="mb-1 text-[13px] font-semibold text-foreground/70">
-                Relationships lands in step 7.5
-              </div>
-              <div className="max-w-[46ch] text-[12px] text-foreground/55">
-                The column-level lineage graph, focus inspector and upstream/downstream reads render
-                here.
-              </div>
-            </div>
-          </section>
-        </main>
-
-        <footer className="flex h-8 flex-none items-center gap-3 border-t border-border bg-card px-4 text-[11px] text-foreground/55">
-          <span className="flex items-center gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald" />
-            chromium · file-system-access
-          </span>
-          <span className="opacity-40">·</span>
-          <span className="mono">TMDL 4.2.0</span>
-          <span className="opacity-40">·</span>
-          <span className="mono">UTF-8 · CRLF</span>
-          <span className="ml-auto mono">v1.0.0</span>
-        </footer>
-      </div>
-    )
-  }
-
-  function cardValue(card: DescCard) {
-    switch (card.tone) {
-      case 'blue':
-        return kpiValue('total')
-      case 'amber':
-        return kpiValue('missingDescription')
-      case 'sky':
-        return kpiValue('unused')
-      case 'cyan':
-        return kpiValue('pendingEdits')
-      case 'emerald':
-        return (
-          <>
-            {kpi.coverage}
-            <span className="text-[15px] font-semibold text-foreground/55">%</span>
-          </>
-        )
-    }
   }
 
   return body

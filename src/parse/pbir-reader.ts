@@ -53,6 +53,18 @@ export interface VisualBinding {
   viaParameter?: boolean
 }
 
+/** One frozen verified-answer definition (FR-18): a question-to-visual pair authored in Power BI. */
+export interface VerifiedAnswer {
+  /** The definitions/<guid> folder id this definition lives under. */
+  guid: string
+  /** The primary trigger prompt (the question shown in the rail). */
+  prompt: string
+  /** The visual type the definition fixes, when decodable from the cache key. */
+  visualType?: string
+  /** Additional trigger prompts beyond the primary. */
+  otherPrompts: number
+}
+
 /** The PBIR reader's output: per-visual bindings, ready edges, broken refs, and parse diagnostics. */
 export interface ReportParse {
   /** One entry per unique (visual, field) binding, resolved or broken. */
@@ -63,6 +75,8 @@ export interface ReportParse {
   broken: { visual: string; field: string }[]
   /** visual.json files that failed to parse; the visual is skipped, never silently dropped. */
   errors: { file: string; message: string }[]
+  /** Frozen question-to-visual pairs (FR-18), parsed from VerifiedAnswers/definitions. */
+  verifiedAnswers: VerifiedAnswer[]
 }
 
 /** One collected reference, pre-resolution; `displayName` rides along as display metadata. */
@@ -76,6 +90,8 @@ interface FieldRef {
 
 /** A visual.json path, rooted anywhere (`definition/pages/…` or report-rooted `pages/…`). */
 const VISUAL_PATH = /(^|\/)pages\/[^/]+\/visuals\/[^/]+\/visual\.json$/
+/** A frozen verified-answer definition under `VerifiedAnswers/definitions/<guid>/definition.json`. */
+const VERIFIED_PATH = /VerifiedAnswers\/definitions\/[^/]+\/definition\.json$/
 
 /** Depth guard for the object deep-search: a measure inside dynamic text sits ~14 levels down. */
 const MAX_DEPTH = 40
@@ -115,7 +131,7 @@ export function parseReport(
 ): ReportParse | null {
   if (reportFiles === null || reportFiles.size === 0) return null
   const index = buildNameIndex(objects)
-  const result: ReportParse = { visualEdges: [], edges: [], broken: [], errors: [] }
+  const result: ReportParse = { visualEdges: [], edges: [], broken: [], errors: [], verifiedAnswers: [] }
   const paths = [...reportFiles.keys()]
     .filter((p) => VISUAL_PATH.test(p.replace(/\\/g, '/')))
     .sort()
@@ -132,6 +148,7 @@ export function parseReport(
     }
     collectVisual(path, json, index, result)
   }
+  collectVerifiedAnswers(reportFiles, result)
   return result
 }
 
@@ -174,6 +191,56 @@ function collectVisual(path: string, json: unknown, index: NameIndex, result: Re
       result.edges.push({ from: visualId, to: objectId, kind: VISUAL })
     }
     result.visualEdges.push(binding)
+  }
+}
+
+/** Scan report file entries for frozen verified-answer definitions (FR-18). */
+function collectVerifiedAnswers(reportFiles: Map<string, string>, result: ReportParse): void {
+  const paths = [...reportFiles.keys()]
+    .filter((p) => VERIFIED_PATH.test(p.replace(/\\/g, '/')))
+    .sort()
+  for (const path of paths) {
+    let json: unknown
+    try {
+      json = JSON.parse(reportFiles.get(path) as string)
+    } catch {
+      continue // an unparsable verified-answer definition is skipped, never fatal
+    }
+    if (!isRec(json)) continue
+    const guid = path.replace(/\\/g, '/').split('/').slice(-2)[0] ?? ''
+    const prompts = Array.isArray(json.triggerPrompts)
+      ? json.triggerPrompts.filter(isRec).map((t) => (isStr(t.prompt) ? t.prompt : ''))
+      : []
+    const firstPrompt = prompts.find((p) => p !== '') ?? ''
+    if (firstPrompt === '') continue // a definition with no prompt is not a usable pair
+    const cache = isRec(json.sourceMetadata)
+      ? isRec(json.sourceMetadata.visualMetadata)
+        ? isRec(json.sourceMetadata.visualMetadata.cache)
+          ? json.sourceMetadata.visualMetadata.cache.key
+          : undefined
+        : undefined
+      : undefined
+    const answer: VerifiedAnswer = {
+      guid,
+      prompt: firstPrompt,
+      otherPrompts: Math.max(0, prompts.length - 1),
+    }
+    if (isStr(cache)) {
+      const visualType = decodeCacheVisualType(cache)
+      if (visualType !== undefined) answer.visualType = visualType
+    }
+    result.verifiedAnswers.push(answer)
+  }
+}
+
+/** Decode the visual type out of a verified-answer cache key (base64 → percent → JSON → visualType). */
+function decodeCacheVisualType(cacheKey: string): string | undefined {
+  try {
+    const decoded = decodeURIComponent(atob(cacheKey))
+    const match = /"visualType":"([^"]+)"/.exec(decoded)
+    return match === null ? undefined : match[1]
+  } catch {
+    return undefined
   }
 }
 
