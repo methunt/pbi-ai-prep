@@ -317,7 +317,18 @@ export default function ObjectGrid() {
           <Heading sort={filters.sort} onSort={onSort} />
           <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
             {virtualItems.map((vi) => {
+              // GUARD: `virtualItems` can be computed against a `count` from
+              // the PREVIOUS render — sorting/filtering recomputes `pageRows`
+              // synchronously in the same tick tanstack-virtual is still
+              // reconciling its cached item list. An index landing outside
+              // the current (possibly narrower) `pageRows` would dereference
+              // `undefined.id` and throw with no ErrorBoundary to catch it —
+              // silently unmounting the ENTIRE grid body (header/KPIs stay,
+              // since they're separate components), which is the exact
+              // "sort reverted, body totally blank" failure. Skip it instead
+              // of crashing; the next render settles once `measure()` catches up.
               const obj = pageRows[vi.index]
+              if (obj === undefined) return null
               const usage = graph.usage(obj.id)
               return (
                 <div

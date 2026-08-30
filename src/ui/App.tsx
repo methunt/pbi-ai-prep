@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import Landing from './chrome/Landing'
 import ThemeToggle from './chrome/ThemeToggle'
+import ErrorBoundary from './chrome/ErrorBoundary'
 import KpiCard, { type KpiTone } from './chrome/KpiCard'
 import ObjectGrid from './grid/ObjectGrid'
 import PrepForAi from './prep/PrepForAi'
@@ -299,7 +300,9 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
               />
             ))}
           </div>
-          <ObjectGrid />
+          <ErrorBoundary label="Description & Update">
+            <ObjectGrid />
+          </ErrorBoundary>
         </section>
 
         {/* Prep for AI */}
@@ -310,7 +313,9 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
           hidden={activeTab !== 'ai'}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <PrepForAi />
+          <ErrorBoundary label="Prep for AI">
+            <PrepForAi />
+          </ErrorBoundary>
         </section>
 
         {/* Relationships */}
@@ -321,7 +326,9 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
           hidden={activeTab !== 'rel'}
           className="flex min-h-0 flex-1 flex-col"
         >
-          <LineageCanvas />
+          <ErrorBoundary label="Relationships">
+            <LineageCanvas />
+          </ErrorBoundary>
         </section>
       </main>
 
