@@ -46,3 +46,294 @@ body {
   background-color: var(--color-bg);
   color: var(--color-foreground);
 }
+
+/* ============================================================
+   Chrome primitives (Task 7.1) — shapes matching mockup/index.html.
+   Token-bound ONLY: every value derives from the `--color-*` tokens
+   above. No hardcoded palette hues, no violet/fuchsia/purple anywhere.
+   Hover/active shades are derived with color-mix so they stay on the
+   token's hue family. Lives here (single stylesheet) because standalone
+   CSS files are not allowed in this project. */
+@layer components {
+  /* ---------- surfaces ---------- */
+  .card {
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 0.75rem;
+  }
+  .elev {
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--color-foreground) 5%, transparent),
+      0 1px 3px color-mix(in srgb, var(--color-foreground) 7%, transparent);
+  }
+  .elev-lg {
+    box-shadow: 0 4px 6px -1px color-mix(in srgb, var(--color-foreground) 7%, transparent),
+      0 10px 24px -4px color-mix(in srgb, var(--color-foreground) 10%, transparent);
+  }
+  .dark .elev {
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.32), 0 1px 3px rgb(0 0 0 / 0.38);
+  }
+  .dark .elev-lg {
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.42), 0 12px 28px -4px rgb(0 0 0 / 0.52);
+  }
+
+  /* ---------- labels ---------- */
+  .lbl {
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--color-foreground) 55%, transparent);
+  }
+
+  /* ---------- buttons ---------- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12.5px;
+    font-weight: 550;
+    line-height: 1;
+    padding: 8px 13px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background-color 130ms ease, border-color 130ms ease,
+      color 130ms ease, box-shadow 130ms ease;
+    white-space: nowrap;
+  }
+  .btn[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background-color: var(--color-primary);
+    color: var(--color-primary-foreground);
+  }
+  .btn-primary:hover {
+    background-color: color-mix(in srgb, var(--color-primary) 86%, black);
+    box-shadow: 0 2px 10px -2px color-mix(in srgb, var(--color-primary) 50%, transparent);
+  }
+  .btn-primary[disabled] {
+    background-color: var(--color-primary);
+  }
+  .btn-outline {
+    background-color: var(--color-card);
+    border-color: var(--color-border);
+    color: var(--color-foreground);
+  }
+  .btn-outline:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 50%, transparent);
+    color: var(--color-primary);
+    background-color: color-mix(in srgb, var(--color-primary) 4%, transparent);
+  }
+  .btn-ghost {
+    background-color: transparent;
+    color: color-mix(in srgb, var(--color-foreground) 55%, transparent);
+  }
+  .btn-ghost:hover {
+    background-color: var(--color-secondary);
+    color: var(--color-foreground);
+  }
+  .btn-sm {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  /* ---------- chips ---------- */
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 5px 11px;
+    border-radius: 7px;
+    border: 1px solid var(--color-border);
+    background-color: var(--color-card);
+    color: color-mix(in srgb, var(--color-foreground) 62%, transparent);
+    cursor: pointer;
+    transition: all 130ms ease;
+    white-space: nowrap;
+  }
+  .chip:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 45%, transparent);
+    color: var(--color-foreground);
+  }
+  .chip[disabled] {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  /* ---------- tabs ---------- */
+  .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 550;
+    padding: 7px 13px;
+    border-radius: 8px;
+    color: color-mix(in srgb, var(--color-foreground) 62%, transparent);
+    cursor: pointer;
+    background-color: transparent;
+    border: 0;
+    transition: background-color 130ms ease, color 130ms ease;
+  }
+  .tab:hover {
+    color: var(--color-foreground);
+    background-color: var(--color-secondary);
+  }
+  .tab[aria-selected='true'] {
+    background-color: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    color: var(--color-primary);
+    font-weight: 650;
+  }
+
+  /* ---------- fields ---------- */
+  .field {
+    background-color: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    font-size: 13px;
+    padding: 8px 11px;
+    width: 100%;
+    color: var(--color-foreground);
+    transition: border-color 130ms ease, box-shadow 130ms ease;
+  }
+  .field::placeholder {
+    color: color-mix(in srgb, var(--color-foreground) 45%, transparent);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent);
+  }
+
+  /* ---------- progress bar ---------- */
+  .bar {
+    height: 6px;
+    border-radius: 999px;
+    background-color: var(--color-secondary);
+    overflow: hidden;
+  }
+  .bar > i {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, var(--color-sky), var(--color-primary));
+    transition: width 400ms ease;
+  }
+
+  /* ---------- pills ---------- */
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.5;
+    white-space: nowrap;
+  }
+  .pill::before {
+    content: '';
+    width: 5px;
+    height: 5px;
+    border-radius: 999px;
+    background: currentColor;
+    flex: none;
+  }
+  .pill-flat::before {
+    display: none;
+  }
+
+  /* ---------- mono + tabular numerals (mockup `.mono`/`.tabular`) ---------- */
+  .mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+    font-feature-settings: 'tnum', 'zero';
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ---------- tone pills (mockup `.t-*`), token-bound ---------- */
+  .t-blue {
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 26%, transparent);
+  }
+  .t-sky {
+    background: color-mix(in srgb, var(--color-sky) 12%, transparent);
+    color: var(--color-sky);
+    border: 1px solid color-mix(in srgb, var(--color-sky) 26%, transparent);
+  }
+  .t-cyan {
+    background: color-mix(in srgb, var(--color-cyan) 12%, transparent);
+    color: var(--color-cyan);
+    border: 1px solid color-mix(in srgb, var(--color-cyan) 26%, transparent);
+  }
+  .t-emerald {
+    background: color-mix(in srgb, var(--color-emerald) 12%, transparent);
+    color: var(--color-emerald);
+    border: 1px solid color-mix(in srgb, var(--color-emerald) 26%, transparent);
+  }
+  .t-amber {
+    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+    color: var(--color-amber);
+    border: 1px solid color-mix(in srgb, var(--color-amber) 30%, transparent);
+  }
+  .t-slate {
+    background: var(--color-secondary);
+    color: color-mix(in srgb, var(--color-foreground) 60%, transparent);
+    border: 1px solid var(--color-border);
+  }
+  .dark .t-blue   { color: color-mix(in srgb, var(--color-primary) 55%, white); }
+  .dark .t-sky    { color: color-mix(in srgb, var(--color-sky) 55%, white); }
+  .dark .t-cyan   { color: color-mix(in srgb, var(--color-cyan) 55%, white); }
+  .dark .t-emerald{ color: color-mix(in srgb, var(--color-emerald) 45%, white); }
+  .dark .t-amber  { color: color-mix(in srgb, var(--color-amber) 45%, white); }
+
+  /* ---------- landing / parse backdrop (mesh gradient) ---------- */
+  .mesh {
+    background-image: radial-gradient(
+        at 8% 0%,
+        color-mix(in srgb, var(--color-primary) 10%, transparent) 0px,
+        transparent 55%
+      ),
+      radial-gradient(
+        at 95% 5%,
+        color-mix(in srgb, var(--color-sky) 10%, transparent) 0px,
+        transparent 50%
+      ),
+      radial-gradient(
+        at 50% 100%,
+        color-mix(in srgb, var(--color-primary) 7%, transparent) 0px,
+        transparent 55%
+      );
+  }
+  .dark .mesh {
+    background-image: radial-gradient(
+        at 8% 0%,
+        color-mix(in srgb, var(--color-primary) 16%, transparent) 0px,
+        transparent 55%
+      ),
+      radial-gradient(
+        at 95% 5%,
+        color-mix(in srgb, var(--color-sky) 10%, transparent) 0px,
+        transparent 50%
+      ),
+      radial-gradient(
+        at 50% 100%,
+        color-mix(in srgb, var(--color-cyan) 7%, transparent) 0px,
+        transparent 55%
+      );
+  }
+
+  /* ---------- focus ring (AD-11) ---------- */
+  :where(button, a, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+    border-radius: 6px;
+  }
+}

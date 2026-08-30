@@ -19,7 +19,6 @@ import ParseStepper from './chrome/ParseStepper'
 import ThemeToggle from './chrome/ThemeToggle'
 import KpiCard, { type KpiTone } from './chrome/KpiCard'
 import { useStore } from '../state/store'
-import './chrome.css'
 
 type TabId = 'desc' | 'ai' | 'rel'
 
