@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   ChartSpline,
   FolderOpen,
+  Loader2,
   ListTree,
   Network,
   PenLine,
@@ -20,10 +21,13 @@ import {
 import { useStore } from '../../state/store'
 import ThemeToggle from './ThemeToggle'
 
-interface LandingProps {
-  /** Called once a folder is opened (handle + permission settled). */
-  onOpened: (handle: FileSystemDirectoryHandle, name: string) => void
-}
+ interface LandingProps {
+   /** Called once a folder is opened (handle + permission settled). */
+   onOpened: (handle: FileSystemDirectoryHandle, name: string) => void
+   /** True while a picked folder is being parsed — the landing shows a loading
+      spinner + text (the standalone parse page was removed). */
+   loading?: boolean
+ }
 
 /** Fielded feature card for the pitch column. */
 interface Feature {
@@ -74,7 +78,7 @@ function engineName(): string {
 }
 
 /** FR-34 landing: product pitch + capability badge + open-with-rationale + recents. */
-export default function Landing({ onOpened }: LandingProps) {
+export default function Landing({ onOpened, loading = false }: LandingProps) {
   const permission = useStore((s) => s.permission)
   const setPermission = useStore((s) => s.setPermission)
   const [recents, setRecents] = useState<RecentFolder[]>([])
@@ -235,6 +239,12 @@ export default function Landing({ onOpened }: LandingProps) {
             <FolderOpen className="h-4 w-4" strokeWidth={2.2} aria-hidden="true" />
             {busy ? 'Opening…' : 'Open PBIP folder'}
           </button>
+          {loading && (
+            <div className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-[10px] border border-primary/28 bg-primary/6 py-3 text-[12.5px] font-semibold text-foreground">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" strokeWidth={2.4} aria-hidden="true" />
+              Preparing your model…
+            </div>
+          )}
           <p className="mb-5 px-0.5 text-[11px] leading-snug text-foreground/60">
             Your browser will ask for <span className="font-semibold text-foreground">write access</span>{' '}
             so description and instruction edits save straight into your local PBIP files. Decline

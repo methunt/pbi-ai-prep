@@ -71,15 +71,14 @@ export default function ParseStepper() {
       // The definition tree and model objects BOTH derive from the primary
       // `objects` parse (AD-7), so stage 1 + 2 share its parseState and live
       // count — real progress during the load instead of a static flash.
-      const layer = layers.objects
       return {
         ...stage,
-                        // The stepper only renders during the primary `objects` parse, and that
+                                // The stepper only renders during the primary `objects` parse, and that
         // parse is atomic — nothing lands in the store until it finishes. So
         // while `objectCount === 0` we are DEFINITELY mid-load: force 'parsing'
         // so the spinner animates instead of a frozen idle circle + '0'. Once
         // objects land the stepper leaves the screen (App flips to the grid).
-        state: objectCount > 0 ? 'ready' : 'parsing',
+                state: (objectCount > 0 ? 'ready' : 'parsing') as ParseState,
         count: objectCount,
       }
     }

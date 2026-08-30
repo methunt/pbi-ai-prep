@@ -15,7 +15,6 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import Landing from './chrome/Landing'
-import ParseStepper from './chrome/ParseStepper'
 import ThemeToggle from './chrome/ThemeToggle'
 import KpiCard, { type KpiTone } from './chrome/KpiCard'
 import ObjectGrid from './grid/ObjectGrid'
@@ -483,7 +482,7 @@ export default function App() {
       </div>
     )
   } else if (phase === 'parse' || layersActive) {
-    body = <ParseStepper />
+    body = <Landing onOpened={openFolder} loading />
   } else {
     body = <Landing onOpened={openFolder} />
   }
