@@ -18,6 +18,7 @@ import Landing from './chrome/Landing'
 import ParseStepper from './chrome/ParseStepper'
 import ThemeToggle from './chrome/ThemeToggle'
 import KpiCard, { type KpiTone } from './chrome/KpiCard'
+import ObjectGrid from './grid/ObjectGrid'
 import { useStore } from '../state/store'
 
 type TabId = 'desc' | 'ai' | 'rel'
@@ -248,15 +249,7 @@ export default function App() {
                 />
               ))}
             </div>
-            <div className="mx-4 mb-3 flex min-h-0 flex-1 flex-col items-center justify-center rounded-xl border border-dashed border-border bg-card/40 p-8 text-center">
-              <div className="mb-1 text-[13px] font-semibold text-foreground/70">
-                Object grid lands in step 7.2
-              </div>
-              <div className="max-w-[46ch] text-[12px] text-foreground/55">
-                Searches, filters, bulk rename and the description editor render here once the
-                Description surface is built.
-              </div>
-            </div>
+            <ObjectGrid />
           </section>
 
           {/* Prep for AI */}

@@ -186,7 +186,6 @@ function computeKpi(
   }
 }
 
-/** Does `o` pass the current filter? `unused` reads the graph's usage (zero consumers). */
 function matchesFilter(o: ModelObject, f: Filters, graph: ObjectGraph): boolean {
   if (f.type !== null && o.type !== f.type) return false
   if (f.table !== null && o.table !== f.table) return false
@@ -201,6 +200,50 @@ function matchesFilter(o: ModelObject, f: Filters, graph: ObjectGraph): boolean 
     if (!hay.includes(q)) return false
   }
   return true
+}
+
+/**
+ * The grid's row projection: filter the folded model by the current filters
+ * then sort by `filters.sort` (FR-10). Returns a NEW array — never mutates
+ * `objects`. Pagination is applied downstream by the grid (slice of a page).
+ * Sort keys mirror the mockup's `data-sort` values; `used` is numeric via the
+ * graph, everything else compares case-insensitively. `Array.prototype.sort`
+ * is stable (ES2019+), so ties keep the folded model's original order.
+ */
+export function deriveVisibleObjects(
+  objects: ModelObject[],
+  filters: Filters,
+  graph: ObjectGraph,
+): ModelObject[] {
+  const filtered = objects.filter(o => matchesFilter(o, filters, graph))
+  const sort = filters.sort
+  if (!sort) return filtered
+  const dir = sort.dir === 'desc' ? -1 : 1
+  return [...filtered].sort((a, b) => {
+    let cmp: number
+    switch (sort.key) {
+      case 'used': {
+        cmp = graph.usage(a.id).total - graph.usage(b.id).total
+        break
+      }
+      case 'desc':
+        cmp = (a.description ?? '').localeCompare(b.description ?? '')
+        break
+      case 'dax':
+        cmp = (a.dax ?? '').localeCompare(b.dax ?? '')
+        break
+      case 'type':
+        cmp = a.type.localeCompare(b.type)
+        break
+      default: {
+        // 'table' | 'name' (and any future string column).
+        const va = (a as unknown as Record<string, unknown>)[sort.key]
+        const vb = (b as unknown as Record<string, unknown>)[sort.key]
+        cmp = String(va ?? '').localeCompare(String(vb ?? ''))
+      }
+    }
+    return cmp * dir
+  })
 }
 
 function dedupeOrdered(ids: readonly string[]): string[] {

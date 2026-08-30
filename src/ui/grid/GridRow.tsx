@@ -1,0 +1,135 @@
+// One virtualised grid row (FR-9). Role/gridcell ARIA, fixed column order
+// from columns.ts, hidden-object dimming, and per-cell edit staging wiring.
+// Memoised (React.memo) because on scroll the virtualizer re-renders its item
+// list; rows whose props (object, usage, edits, selection) are unchanged must
+// skip re-rendering to hold the 16ms frame budget (FR-9).
+import { memo } from 'react'
+import type { MouseEvent } from 'react'
+import { Network } from 'lucide-react'
+import type { ModelObject } from '../../domain/objects'
+import type { Usage } from '../../domain/graph'
+import { TYPE_META } from './typeMeta'
+import DescriptionCell, { type NavDir } from './DescriptionCell'
+import RenameCell from './RenameCell'
+import UsedCell from './UsedCell'
+
+export interface GridRowProps {
+  obj: ModelObject
+  /** Index within the current page rows (used for arrow-navigation). */
+  rowIndex: number
+  usage: Usage
+  selected: boolean
+  readOnly: boolean
+  description: string
+  renameTo: string
+  descChanged: boolean
+  renameChanged: boolean
+  onCommitDescription: (obj: ModelObject, value: string) => void
+  onCommitRename: (obj: ModelObject, value: string) => void
+  onNavigate: (dir: NavDir) => void
+  onToggleSelect: (id: string) => void
+  onRowClick: (e: MouseEvent<HTMLDivElement>, rowIndex: number) => void
+}
+
+function GridRow({
+  obj,
+  rowIndex,
+  usage,
+  selected,
+  readOnly,
+  description,
+  renameTo,
+  descChanged,
+  renameChanged,
+  onCommitDescription,
+  onCommitRename,
+  onNavigate,
+  onToggleSelect,
+  onRowClick,
+}: GridRowProps) {
+  const meta = TYPE_META[obj.type]
+  const dax =
+    meta.hasDax && typeof obj.dax === 'string' && obj.dax.trim() !== '' ? obj.dax : ''
+
+  return (
+    <div
+      role="row"
+      data-row={rowIndex}
+      className={`grid-row${selected ? ' selected' : ''}${obj.hidden ? ' hidden' : ''}`}
+      onClick={(e) => onRowClick(e, rowIndex)}
+    >
+      <div role="gridcell" data-col="checkbox" className="grid-cell justify-center">
+        <input
+          type="checkbox"
+          className="accent-primary h-3.5 w-3.5 align-middle"
+          checked={selected}
+          aria-label={`Select ${obj.name}${obj.hidden ? ' (hidden)' : ''}`}
+          onChange={() => onToggleSelect(obj.id)}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+
+      <div role="gridcell" data-col="lineage" className="grid-cell justify-center">
+        <button
+          type="button"
+          className="hov btn btn-ghost !p-1"
+          title="Open in Lineage"
+          aria-label={`Open ${obj.name} in Lineage`}
+          disabled
+          onClick={(e) => e.stopPropagation()}
+        >
+          <Network className="h-3.5 w-3.5" strokeWidth={2.2} aria-hidden="true" />
+        </button>
+      </div>
+
+      <div role="gridcell" data-col="type" className="grid-cell">
+        <span className="type-cell">
+          <span className={`type-dot ${meta.dot}`} aria-hidden="true" />
+          {meta.label}
+        </span>
+      </div>
+
+      <div role="gridcell" data-col="table" className="grid-cell text-foreground/55">
+        {obj.table || '—'}
+      </div>
+
+      <div role="gridcell" data-col="name" className="grid-cell font-semibold">
+        <span className="truncate">{obj.name}</span>
+        {obj.hidden && <span className="pill t-slate !text-[9px] flex-none">hidden</span>}
+      </div>
+
+      <RenameCell
+        value={renameTo}
+        readOnly={readOnly}
+        isChanged={renameChanged}
+        onCommit={(v) => onCommitRename(obj, v)}
+        onNavigate={onNavigate}
+      />
+
+      <div role="gridcell" data-col="used" className="grid-cell">
+        <UsedCell usage={usage} total={usage.total} />
+      </div>
+
+      <DescriptionCell
+        value={description}
+        readOnly={readOnly}
+        isChanged={descChanged}
+        onCommit={(v) => onCommitDescription(obj, v)}
+        onNavigate={onNavigate}
+      />
+
+      <div role="gridcell" data-col="dax" className="grid-cell mono text-[11.5px] text-foreground/55">
+        {dax ? (
+          <span className="tip tip-dax">
+            <span className="truncate cursor-help">{dax}</span>
+            <span className="tip-body dax-tip">{dax}</span>
+          </span>
+        ) : (
+          <span>—</span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+export default memo(GridRow)

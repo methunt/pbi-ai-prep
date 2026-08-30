@@ -20,6 +20,10 @@
   --color-cyan: hsl(188 94% 43%);
   --color-emerald: hsl(160 84% 39%);
   --color-amber: hsl(38 92% 50%);
+  /* Popover / tooltip surface — the dark "lifted" panel that pops over the
+     grid (mockup `.tip-body`). Dark override resolves to a lighter slate so
+     the tooltip stays readable over the dark surface. */
+  --color-popover: hsl(222 47% 11%);
 }
 
 /* Dark overrides: same utility names resolve differently under `.dark`.
@@ -36,15 +40,17 @@
   --color-foreground: hsl(210 40% 98%);
   --color-secondary: hsl(217 33% 15%);
   --color-muted: hsl(217 33% 15%);
-  /* derived: DESIGN.md pins border light only; dark keeps the slate hue */
-  --color-border: hsl(217 33% 18%);
+  --color-popover: hsl(217 33% 22%);
   color-scheme: dark;
 }
 
-/* Base surface so the page never flashes unstyled/white in dark mode. */
-body {
-  background-color: var(--color-bg);
-  color: var(--color-foreground);
+/* Full-viewport layout column: the AppShell root uses `h-full`, which needs a
+   fixed-height ancestor chain (mockup html/body.h-full). Without this the app
+   grows to its content and the grid's scroll container cannot virtualise. */
+html,
+body,
+#root {
+  height: 100%;
 }
 
 /* ============================================================
@@ -312,24 +318,177 @@ body {
         transparent 55%
       );
   }
-  .dark .mesh {
-    background-image: radial-gradient(
-        at 8% 0%,
-        color-mix(in srgb, var(--color-primary) 16%, transparent) 0px,
-        transparent 55%
-      ),
-      radial-gradient(
-        at 95% 5%,
-        color-mix(in srgb, var(--color-sky) 10%, transparent) 0px,
-        transparent 50%
-      ),
-      radial-gradient(
-        at 50% 100%,
-        color-mix(in srgb, var(--color-cyan) 7%, transparent) 0px,
-        transparent 55%
-      );
+  /* ============================================================
+     Object grid (Task 7.2) — virtualised object table matching
+     mockup/index.html. Token-bound ONLY; no hardcoded hues. */
+  .grid-row {
+    display: grid;
+    grid-template-columns:
+      40px 40px
+      minmax(110px, 150px)
+      minmax(130px, 180px)
+      minmax(120px, 1.3fr)
+      200px
+      96px
+      minmax(220px, 2.4fr)
+      minmax(180px, 2fr);
+    min-width: 1080px;
+  }
+  /* The whole header row sticks inside the scroll container (mockup thead). */
+  .grid-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background-color: var(--color-card);
+  }
+  .grid-head-cell[data-sort] {
+    cursor: pointer;
+    user-select: none;
+  }
+  .grid-head-cell[data-sort]:hover {
+    color: var(--color-foreground);
+  }
+  .grid-head-cell.sorted {
+    color: var(--color-primary);
+  }
+  .grid-head-cell:focus-visible {
+    color: var(--color-primary);
+  }
+  .sarr {
+    font-size: 8px;
+    opacity: 0.75;
+    margin-left: 2px;
   }
 
+  .grid-cell {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 14px;
+    height: 42px;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+    font-size: 13px;
+    min-width: 0;
+  }
+  .grid-row { transition: background-color 110ms ease; }
+  .grid-row:hover { background: color-mix(in srgb, var(--color-primary) 3.5%, transparent); }
+  .grid-row.selected { background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
+  .grid-row.hidden { opacity: 0.55; }
+  .grid-row:hover .hov { opacity: 1; }
+  .grid-row:focus-visible { outline-offset: -2px; }
+  .hov { opacity: 0; transition: opacity 120ms ease; }
+
+  .type-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--color-foreground) 60%, transparent);
+    white-space: nowrap;
+  }
+  .type-dot { width: 7px; height: 7px; border-radius: 999px; flex: none; }
+
+  /* Used-count coding (inverted): 0 = light-blue highlight · 1–5 grey · 6+ grey strong */
+  .u0 {
+    background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+    color: var(--color-primary);
+    border: 1px solid color-mix(in srgb, var(--color-primary) 26%, transparent);
+  }
+  .u1 {
+    background: var(--color-secondary);
+    color: color-mix(in srgb, var(--color-foreground) 60%, transparent);
+    border: 1px solid var(--color-border);
+  }
+  .u6 {
+    background: var(--color-secondary);
+    color: var(--color-foreground);
+    border: 1px solid var(--color-border);
+    font-weight: 650;
+  }
+  .dark .u0 { color: color-mix(in srgb, var(--color-primary) 55%, white); }
+  .dark .u6 { color: color-mix(in srgb, var(--color-foreground) 90%, white); }
+
+  /* changed-cell marker (FR-11) */
+  .cell-changed { position: relative; }
+  .cell-changed::before {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--color-amber) 80%, white);
+  }
+
+  /* ---------- pager ---------- */
+  .pgbtn {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 7px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--color-foreground) 55%, transparent);
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    transition: all 120ms ease;
+  }
+  .pgbtn:hover:not(:disabled) { background: var(--color-secondary); color: var(--color-foreground); }
+  .pgbtn.cur {
+    background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+    color: var(--color-primary);
+    border-color: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  }
+  .pgbtn:disabled { opacity: 0.35; cursor: not-allowed; }
+  .pgdots { padding: 0 4px; color: color-mix(in srgb, var(--color-foreground) 55%, transparent); font-size: 12px; }
+
+  /* ---------- tooltip ---------- */
+  .tip { position: relative; display: inline-flex; }
+  .tip-body {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--color-popover);
+    color: var(--color-primary-foreground);
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 11.5px;
+    line-height: 1.5;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+    z-index: 60;
+    box-shadow: 0 8px 20px -6px hsl(0 0% 0% / 0.35);
+  }
+  .tip-body::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 5px solid transparent;
+    border-top-color: var(--color-popover);
+  }
+  .tip:hover .tip-body { opacity: 1; }
+  .tip:focus-within .tip-body { opacity: 1; }
+  .dax-tip {
+    white-space: pre-wrap !important;
+    text-align: left;
+    font-size: 11px;
+    line-height: 1.65;
+    max-width: 520px;
+    min-width: 300px;
+    max-height: 320px;
+    overflow: auto;
+    pointer-events: auto;
+    tab-size: 2;
+  }
   /* ---------- focus ring (AD-11) ---------- */
   :where(button, a, input, select, textarea, [tabindex]):focus-visible {
     outline: 2px solid var(--color-primary);
