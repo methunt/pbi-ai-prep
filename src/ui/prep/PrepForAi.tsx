@@ -6,9 +6,11 @@
 // through the journal with the write-planner's sanctioned fields
 // (customInstructions / synonyms / lsdlVisibility). Read-only (permission !==
 // 'granted') disables every write (visible, never hidden).
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, EyeOff, Network, PenLine, Tags } from 'lucide-react'
 import { useStore } from '../../state/store'
+import { requestLayer } from '../../state/broker'
+import { deriveCultureText, deriveReportFiles } from '../../state/layerDeps'
 import KpiCard from '../chrome/KpiCard'
 import type { LSDL } from '../../parse/lsdl-reader'
 import type { ReportParse } from '../../parse/pbir-reader'
@@ -30,7 +32,29 @@ export default function PrepForAi() {
   const project = useStore((s) => s.project)
   const pristine = useStore((s) => s.pristine)
   const journal = useStore((s) => s.journal)
+  const activeTab = useStore((s) => s.activeTab)
   const [active, setActive] = useState<AiSubTab>('instr')
+
+  // Lazy-layer triggers (AD-7): the Prep-for-AI surface is the consumer of the
+  // `lsdl` and `report` layers. Request them when the tab is shown and the layer
+  // is idle (never parsed) or stale (invalidated by a journal/disk change).
+  useEffect(() => {
+    if (activeTab !== 'ai') return
+    const lsdl = useStore.getState().layers.lsdl
+    if (lsdl.parseState === 'idle' || lsdl.parseState === 'stale') {
+      void requestLayer('lsdl', {
+        layerFiles: { cultureText: deriveCultureText(project) ?? '' },
+        objects: pristine,
+      })
+    }
+    const report = useStore.getState().layers.report
+    if (report.parseState === 'idle' || report.parseState === 'stale') {
+      void requestLayer('report', {
+        layerFiles: { reportFiles: deriveReportFiles(project) },
+        objects: pristine,
+      })
+    }
+  }, [activeTab, project, pristine, layers.lsdl.parseState, layers.report.parseState])
 
   const lsdl = (layers.lsdl.data as LSDL | undefined) ?? EMPTY_LSDL
   const report = layers.report.data as ReportParse | undefined

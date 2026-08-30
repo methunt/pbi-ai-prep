@@ -23,6 +23,8 @@ import PrepForAi from './prep/PrepForAi'
 import LineageCanvas from './lineage/LineageCanvas'
 import { useStore, type Kpi, type TabId } from '../state/store'
 import { loadProject } from '../fs/load'
+import { saveWrites, reloadConflicts, bindRootHandle } from '../state/save'
+import type { SaveOutcome } from '../state/save'
 
 const TAB_IDS: TabId[] = ['desc', 'ai', 'rel']
 
@@ -104,6 +106,53 @@ interface AppShellProps {
  * prep sub-tab and the schema explorer's expansion on every edit.
  */
 function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs }: AppShellProps) {
+  const permission = useStore((s) => s.permission)
+  const journal = useStore((s) => s.journal)
+  const [saving, setSaving] = useState(false)
+  const [saveOutcome, setSaveOutcome] = useState<SaveOutcome | null>(null)
+  const [savedNotice, setSavedNotice] = useState(false)
+
+  const saveDisabled = permission !== 'granted' || journal.length === 0 || saving
+
+  const handleSave = async (overwrite = false): Promise<void> => {
+    setSaving(true)
+    setSavedNotice(false)
+    try {
+      const outcome = await saveWrites({ overwrite })
+      if (outcome.status === 'success') {
+        setSaveOutcome(null)
+        setSavedNotice(true)
+        window.setTimeout(() => setSavedNotice(false), 2500)
+      } else {
+        setSaveOutcome(outcome)
+      }
+    } catch (err) {
+      setSaveOutcome({
+        status: 'error',
+        written: [],
+        conflicts: [],
+        message: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleReload = async (): Promise<void> => {
+    if (saveOutcome?.status !== 'conflict') return
+    await reloadConflicts(saveOutcome.conflicts)
+    setSaveOutcome(null)
+  }
+
+  const handleRetryPermission = async (): Promise<void> => {
+    if (saveOutcome?.status !== 'permission') return
+    const retry = saveOutcome.retryRequestPermission
+    if (!retry) return
+    setSaveOutcome(null)
+    const status = await retry()
+    if (status === 'granted') void handleSave(false)
+  }
+
   const onTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, id: TabId) => {
     const idx = TAB_IDS.indexOf(id)
     let next = idx
@@ -202,12 +251,22 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
           <span className={`text-[11px] ${readOnly ? 'text-amber' : 'text-foreground/55'}`}>
             {readOnly ? 'Read-only' : `${kpi.pendingEdits} pending`}
           </span>
-          <button type="button" className="btn btn-primary btn-sm" disabled={readOnly}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={saveDisabled}
+            onClick={() => void handleSave(false)}
+          >
             <Save className="h-3.5 w-3.5" strokeWidth={2.3} aria-hidden="true" />
-            Save
+            {saving ? 'Saving…' : 'Save'}
           </button>
           <ThemeToggle />
         </div>
+        {savedNotice && (
+          <span className="pill t-emerald !text-[10px]" role="status" aria-live="polite">
+            Saved
+          </span>
+        )}
       </header>
 
       {readOnly && (
@@ -280,6 +339,71 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
         <span className="mono">MIT · parsers: lineage-tracer, pbip-documenter</span>
         <span className="ml-auto mono">v1.0.0</span>
       </footer>
+
+      {saveOutcome?.status === 'conflict' && (
+        <div className="mesh fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="card elev-lg w-full max-w-[460px] p-6">
+            <div className="mb-1 text-[15px] font-bold">Files changed on disk</div>
+            <div className="mb-3 text-[12.5px] leading-snug text-foreground/60">
+              These files changed outside this session since they were loaded. Reload discards
+              only that file&apos;s pending edits; Write anyway overwrites the on-disk change.
+            </div>
+            <ul className="mb-4 max-h-[180px] space-y-1 overflow-auto">
+              {saveOutcome.conflicts.map((f) => (
+                <li key={f} className="mono truncate text-[11.5px] text-foreground/80">{f}</li>
+              ))}
+            </ul>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn btn-outline" onClick={() => void handleReload()}>
+                Reload from disk
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => {
+                  setSaveOutcome(null)
+                  void handleSave(true)
+                }}
+              >
+                Write anyway
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveOutcome?.status === 'permission' && (
+        <div className="mesh fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="card elev-lg w-full max-w-[460px] p-6">
+            <div className="mb-1 text-[15px] font-bold">Write access needed</div>
+            <div className="mb-3 text-[12.5px] leading-snug text-foreground/60">
+              {saveOutcome.message ?? 'Re-request read/write permission to finish saving.'}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="btn btn-outline" onClick={() => setSaveOutcome(null)}>
+                Cancel
+              </button>
+              <button type="button" className="btn btn-primary" onClick={() => void handleRetryPermission()}>
+                Grant access &amp; retry
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {saveOutcome?.status === 'error' && (
+        <div className="mesh fixed inset-0 z-50 flex items-center justify-center p-6">
+          <div className="card elev-lg w-full max-w-[460px] p-6">
+            <div className="mb-1 text-[15px] font-bold">Could not save</div>
+            <div className="mb-4 text-[12.5px] leading-snug text-foreground/60">{saveOutcome.message}</div>
+            <div className="flex justify-end">
+              <button type="button" className="btn btn-primary" onClick={() => setSaveOutcome(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -314,6 +438,8 @@ export default function App() {
     setPhase('parse')
     setLoadError(null)
     try {
+      // Bind the picked handle so the Save orchestrator can read/check/write.
+      bindRootHandle(handle)
       // Walk the picked PBIP tree and request the workerized `objects` parse.
       // The broker commits the parsed project via setProject (AD-7); the grid
       // renders once the store has it. The parse itself runs OFF the main thread

@@ -132,6 +132,18 @@ export interface StoreState {
   /** Idempotent: re-applying the same parseState without new data is a no-op. */
   setLayerState(layer: LayerName, state: LayerState): void
   setPermission(permission: Permission): void
+  /** Post-save commit (AD-5): the save orchestrator's single store door. Applies
+   *  the written files' original text + refreshed spans, the baked pristine
+   *  model, the remaining journal, and the stale-marked layers; folds + KPI. */
+  applySaveCommit(
+    files: Record<string, { text: string; spans: unknown }>,
+    bakedPristine: ModelObject[],
+    journal: JournalRecord[],
+    layers: LayerMap,
+  ): void
+  /** Union report-derived visual edges into the graph (FR-7/FR-9): rebuild the
+   *  graph over the pristine model with the report edges added. Idempotent. */
+  mergeReportEdges(edges: readonly Edge[]): void
   /** The active top-level tab (AD-11 tablist). Owned here so the grid and the
    *  lineage canvas can drive each other's surface (FR-21 round-trip). */
   activeTab: TabId
@@ -298,6 +310,21 @@ function dedupeOrdered(ids: readonly string[]): string[] {
   return out
 }
 
+/** Dedupe edges (from/to/kind) in order — the union of the base model edges and
+ * the report-derived visual edges. The graph is immutable, so it is rebuilt once
+ * with the merged set rather than mutated. */
+function mergeEdges(edges: readonly Edge[]): Edge[] {
+  const seen = new Set<string>()
+  const out: Edge[] = []
+  for (const e of edges) {
+    const key = `${e.from}\u0000${e.to}\u0000${e.kind}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(e)
+  }
+  return out
+}
+
 /** A journal change invalidates delivered (ready) layer data → stale (AD-5). */
 function staleReady(layers: LayerMap): LayerMap {
   const names = Object.keys(layers) as LayerName[]
@@ -426,6 +453,33 @@ export const useStore = create<StoreState>()((set, get) => {
 
     setPermission(permission) {
       set({ permission })
+    },
+
+    applySaveCommit(files, bakedPristine, journal, layers) {
+      const prev = get()
+      const objects = projectModel(bakedPristine, journal)
+      set({
+        pristine: bakedPristine,
+        project: {
+          ...prev.project,
+          files: { ...prev.project.files, ...files },
+          objects,
+          objectsById: indexObjects(objects),
+        },
+        journal,
+        layers,
+        kpi: computeKpi(objects, prev.graph, journal),
+      })
+    },
+
+    mergeReportEdges(edges) {
+      const prev = get()
+      if (edges.length === 0) return
+      const merged = mergeEdges([...prev.project.edges, ...edges])
+      set({
+        project: { ...prev.project, edges: merged },
+        graph: buildGraph(prev.pristine, merged),
+      })
     },
 
     setActiveTab(tab) {

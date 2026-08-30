@@ -20,6 +20,7 @@
 import { useStore, type LayerName, type FileRecord } from './store'
 import type { ModelObject, SourceSpans } from '../domain/objects'
 import type { TmdlParseResult } from '../parse/tmdl-reader'
+import type { Edge } from '../domain/graph'
 
 /** Per-layer inputs the broker forwards to the worker. */
 export interface LayerFiles {
@@ -143,6 +144,17 @@ function commitObjects(layer: LayerName, data: unknown, deps: LayerDeps): void {
   })
 }
 
+/** The `lineage` layer's worker result is the report-edge lineage. Merge its
+ * report-derived visual edges into the graph so FR-7/FR-9 usage reflects report
+ * reach (the graph is otherwise built from the TMDL edges alone). */
+function commitLineage(layer: LayerName, data: unknown): void {
+  if (layer !== 'lineage') return
+  const result = data as { edges?: readonly Edge[] } | null
+  if (result === null || result === undefined) return
+  if (!Array.isArray(result.edges)) return
+  useStore.getState().mergeReportEdges(result.edges)
+}
+
 async function runParse(layer: LayerName, deps: LayerDeps): Promise<unknown> {
   useStore.getState().setLayerState(layer, { parseState: 'parsing' })
 
@@ -168,6 +180,9 @@ async function runParse(layer: LayerName, deps: LayerDeps): Promise<unknown> {
     // setProject so the grid/lineage/prep read the folded model (AD-7).
     commitObjects(layer, data, deps)
     useStore.getState().setLayerState(layer, { parseState: 'ready', data })
+    // The `lineage` layer's ready result carries the report-edge lineage; merge
+    // its visual edges into the graph so FR-7/FR-9 usage reflects report reach.
+    commitLineage(layer, data)
     return data
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

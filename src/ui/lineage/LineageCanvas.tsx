@@ -40,6 +40,8 @@ import ELK from 'elkjs/lib/elk.bundled.js'
 import { ArrowLeft, RotateCcw } from 'lucide-react'
 import '@xyflow/react/dist/style.css'
 import { useStore } from '../../state/store'
+import { requestLayer } from '../../state/broker'
+import { deriveReportFiles } from '../../state/layerDeps'
 import type { EdgeKind } from '../../domain/graph'
 import type { ModelObject, ObjectType } from '../../domain/objects'
 import LineageNode, { type LineageNodeType, type LineageRow } from './LineageNode'
@@ -251,10 +253,26 @@ function LineageInner() {
   const project = useStore((s) => s.project)
   const graph = useStore((s) => s.graph)
   const activeTab = useStore((s) => s.activeTab)
+  const pristine = useStore((s) => s.pristine)
+  const layers = useStore((s) => s.layers)
   const lineageFocusId = useStore((s) => s.lineageFocusId)
   const lineageFocusNonce = useStore((s) => s.lineageFocusNonce)
   const focusLineage = useStore((s) => s.focusLineage)
   const setActiveTab = useStore((s) => s.setActiveTab)
+
+  // Lazy-layer trigger (AD-7): the Relationships surface is the consumer of the
+  // `lineage` layer (the report-edge lineage). Request it when the tab is shown
+  // and the layer is idle (never parsed) or stale (invalidated by a change).
+  useEffect(() => {
+    if (activeTab !== 'rel') return
+    const lineage = useStore.getState().layers.lineage
+    if (lineage.parseState === 'idle' || lineage.parseState === 'stale') {
+      void requestLayer('lineage', {
+        layerFiles: { reportFiles: deriveReportFiles(project) },
+        objects: pristine,
+      })
+    }
+  }, [activeTab, project, pristine, layers.lineage.parseState])
 
   const reactFlow = useReactFlow<LineageNodeType, LineageEdgeType>()
   const [nodes, setNodes, onNodesChange] = useNodesState<LineageNodeType>([])

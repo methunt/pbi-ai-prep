@@ -102,5 +102,5 @@ export function applyPatches(originalText: string, patches: Patch[]): string {
   }
   parts.push(bytes.subarray(0, pos))
   parts.reverse()
-  return new TextDecoder().decode(concatBytes(parts))
+  return new TextDecoder('utf-8', { fatal: true }).decode(concatBytes(parts))
 }

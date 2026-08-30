@@ -1,11 +1,15 @@
 // src/fs/load.ts — production folder→grid load orchestration (FR-1/FR-2/FR-5/FR-8).
 //
-// After the user picks a PBIP folder, this walks the semantic model's
-// definition tree, gathers the TMDL text into a Map<posixPath,text>, and asks
-// the broker's `objects` layer to parse it. The parse runs OFF the main thread
-// in the parse worker (FR-8: the main thread never blocks >50ms on the model
-// parse); the broker in state/ is the ONLY commit path and calls setProject, so
-// the grid/lineage/prep read the folded model.
+// After the user picks a PBIP folder, this walks the whole tree, gathers every
+// text file into a Map<posixPath,text> (the semantic-model TMDL tree plus the
+// report's JSON and the culture files), and asks the broker's `objects` layer
+// to parse it. The parse runs OFF the main thread in the parse worker (FR-8:
+// the main thread never blocks >50ms on the model parse); the broker in state/
+// is the ONLY commit path and calls setProject, so the grid/lineage/prep read
+// the folded model. The extra, non-TMDL text lands in `project.files` so the
+// lazy `lsdl`/`report`/`lineage` layers derive their deps from it (AD-7) —
+// parseTmdlProject skips files with no reader vocabulary, and the report reader
+// filters its file map by path.
 //
 // FR-2: a folder with no semantic model (no `definition/*.tmdl`) is rejected
 // with a readable error BEFORE any parse is dispatched.
@@ -28,7 +32,7 @@ export async function loadProject(
   const entries = await readDir(root)
   const files = new Map<string, string>()
   for (const entry of entries) {
-    if (entry.kind === 'file' && entry.path.endsWith('.tmdl')) {
+    if (entry.kind === 'file') {
       files.set(entry.path, await readFile(root, entry.path))
     }
   }
