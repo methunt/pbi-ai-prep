@@ -411,7 +411,7 @@ body {
       160px
       96px
       minmax(200px, 2.4fr)
-      minmax(150px, 1.8fr);
+      150px;
     min-width: 1026px;
   }
      /* The whole header row sticks inside the scroll container (mockup thead). */

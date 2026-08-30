@@ -240,9 +240,14 @@ export default function Landing({ onOpened, loading = false }: LandingProps) {
             {busy ? 'Opening…' : 'Open PBIP folder'}
           </button>
           {loading && (
-            <div className="mb-2.5 flex w-full items-center justify-center gap-2 rounded-[10px] border border-primary/28 bg-primary/6 py-3 text-[12.5px] font-semibold text-foreground">
-              <Loader2 className="h-4 w-4 animate-spin text-primary" strokeWidth={2.4} aria-hidden="true" />
-              Preparing your model…
+            <div
+              className="elev mb-2.5 flex w-full items-center justify-center gap-2.5 rounded-[10px] py-3.5 text-[13px] font-bold text-white"
+              style={{ background: 'linear-gradient(135deg, var(--color-primary), var(--color-sky))' }}
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-4.5 w-4.5 animate-spin" strokeWidth={2.6} aria-hidden="true" />
+              Loading your model…
             </div>
           )}
           <p className="mb-5 px-0.5 text-[11px] leading-snug text-foreground/60">
