@@ -1,0 +1,9 @@
+perspective Fixture
+
+	perspectiveTable Sales
+
+		perspectiveColumn Amount
+
+		perspectiveMeasure 'Chain A'
+
+	perspectiveTable Region

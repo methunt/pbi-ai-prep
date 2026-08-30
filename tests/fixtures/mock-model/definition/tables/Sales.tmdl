@@ -40,6 +40,7 @@ table Sales
 		isHidden
 		displayFolder: Fixture\Chain
 		lineageTag: 4b186f1d-6de8-4cb1-9b08-40b2fc043611
+		changedProperty = IsHidden
 
 	/// Chain bottom; triple-backtick DAX body; references Amount
 	measure 'Chain C' = ```
@@ -53,6 +54,7 @@ table Sales
 
 	partition Sales = m
 		mode: import
+		queryGroup: Fact
 		source =
 				let
 				    Source = #table({"Amount", "Region"}, {})

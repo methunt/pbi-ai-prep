@@ -1,0 +1,15 @@
+/// Synthetic DAX user-defined functions; bodies are read back verbatim.
+function fx_double = ```
+		(v:expr) => v * 2
+		```
+	lineageTag: 9dd8b955-918c-4663-94a9-be03232adb1a
+
+/// Picks the first argument when positive.
+function fx_pick = ```
+		(a:expr, b:expr) =>
+		IF.EAGER(
+		    a,
+		    b
+		)
+		```
+	lineageTag: c8d385f5-b9e3-4498-9ed8-044c44165ccb

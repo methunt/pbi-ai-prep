@@ -48,6 +48,8 @@ export interface ModelObject {
   queryGroup?: string
   displayFolder?: string
   perspectiveMembership?: string[]
+  /** Property-change markers Power BI wrote under the object (`changedProperty = IsHidden`), kept so writes cannot lose them. */
+  changedProperty?: string[]
   ordinal?: number
 }
 

@@ -57,5 +57,6 @@ table 'Field Slices'
 				    ("Region", NAMEOF(Sales[Region]), 0),
 				    ("Deleted", NAMEOF('Sales'[Deleted Column]), 1)
 				}
+	changedProperty = Name
 
 	annotation PBI_Id = 49c3a68aa0fc49d8a3a4338a8481b351
