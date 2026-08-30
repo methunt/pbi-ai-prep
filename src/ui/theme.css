@@ -430,7 +430,13 @@ body {
    .grid-head {
      position: sticky;
      top: 0;
-     z-index: 5;
+     /* Must beat .tip-body's z-index (60): a row that has scrolled to sit
+        partially BEHIND the sticky header can still have its tooltip's
+        computed position fall within the header's on-screen band (the
+        tooltip offset is relative to the row's own — possibly hidden —
+        box, not the visible viewport). The header must always win that
+        stacking fight so a tooltip never paints over the column labels. */
+     z-index: 70;
      background-color: var(--color-card);
    }
    .grid-head-cell {

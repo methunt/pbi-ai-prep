@@ -80,6 +80,19 @@ export default function ObjectGrid() {
   })
   const virtualItems = virtualizer.getVirtualItems()
 
+  // The grid stays MOUNTED but `hidden` (display:none) while another tab is
+  // active, and rows can arrive asynchronously after the folder parse
+  // completes. Tanstack-virtual's ResizeObserver is attached once the scroll
+  // element exists; if it was 0-height (hidden tab / pre-parse) when that
+  // happened, a later resize can be missed and the grid renders visually
+  // blank until an unrelated interaction forces a reflow. Force a fresh
+  // measurement whenever the row count or the visible tab changes.
+  const activeTab = useStore((s) => s.activeTab)
+  useEffect(() => {
+    if (activeTab !== 'desc') return
+    virtualizer.measure()
+  }, [activeTab, pageRows.length, virtualizer])
+
   // FR-21 canvas→grid round-trip: scroll the focused object into view and flash
   // its row. Page to the page that holds it, then scroll within that page.
   useEffect(() => {
