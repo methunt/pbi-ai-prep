@@ -13,12 +13,13 @@
 // Read-only (permission !== 'granted') disables every write action (visible,
 // never hidden) and carries an in-bar explanation.
 import { useMemo, useState } from 'react'
-import { Trash2, Type } from 'lucide-react'
+import { Type } from 'lucide-react'
 import { useStore } from '../../state/store'
 import type { ModelObject } from '../../domain/objects'
 import type { RenameProposal } from '../../domain/rename'
 import ActionBar from './ActionBar'
 import BulkRenameDialog from './BulkRenameDialog'
+import DeleteDialog from './DeleteDialog'
 
 type ModalId = 'none' | 'rename' | 'desc' | 'delete'
 
@@ -123,14 +124,12 @@ export default function SelectionContext() {
     setModal('none')
   }
 
-  const confirmDelete = (): void => {
-    for (const id of selectedIds) {
-      const obj = pristineById.get(id)
+  const stageDeletes = (objects: ModelObject[]): void => {
+    for (const o of objects) {
+      const obj = pristineById.get(o.id)
       if (obj === undefined) continue
       journalAdd({ kind: 'delete', objectId: obj.id, file: obj.file, context: 'user' })
     }
-    clearSelection()
-    setModal('none')
   }
 
   return (
@@ -189,11 +188,17 @@ export default function SelectionContext() {
       )}
 
       {modal === 'delete' && (
-        <DeleteSelectedDialog
+        <DeleteDialog
           selected={selectedObjs}
+          graph={graph}
+          model={pristine}
           readOnly={readOnly}
-          onClose={() => setModal('none')}
-          onConfirm={confirmDelete}
+          onCancel={() => setModal('none')}
+          onStage={stageDeletes}
+          onDone={() => {
+            clearSelection()
+            setModal('none')
+          }}
         />
       )}
     </>
@@ -280,86 +285,6 @@ function SetDescriptionDialog({
               onClick={() => onApply(value)}
             >
               Apply to selected
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function DeleteSelectedDialog({
-  selected,
-  readOnly,
-  onClose,
-  onConfirm,
-}: {
-  selected: ModelObject[]
-  readOnly: boolean
-  onClose: () => void
-  onConfirm: () => void
-}) {
-  return (
-    <div
-      className="scrim on"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Delete selected"
-    >
-      <div className="card elev-lg mx-4 w-full max-w-[560px] overflow-hidden fade-up">
-        <div className="flex items-start gap-3 border-b border-border px-5 py-4">
-          <div
-            className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px]"
-            style={{
-              background: 'color-mix(in srgb, var(--color-destructive) 13%, transparent)',
-              color: 'var(--color-destructive)',
-            }}
-          >
-            <Trash2 className="h-[18px] w-[18px]" strokeWidth={2.3} aria-hidden="true" />
-          </div>
-          <div className="min-w-0">
-            <h3 className="text-[14.5px] font-bold leading-snug">
-              Delete {selected.length} selected object{selected.length === 1 ? '' : 's'}
-            </h3>
-            <p className="mt-1 text-[12px] leading-snug text-foreground/55">
-              Removal stages a pending change and cannot be undone here — only via Git.
-            </p>
-          </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm ml-auto !p-1.5 flex-none"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="max-h-[300px] space-y-3 overflow-auto px-5 py-4">
-          {selected.map((o) => (
-            <div key={o.id} className="flex items-center gap-3 text-[12px]">
-              <span className="mono flex-none text-foreground/55">{o.table || '—'}</span>
-              <span className="mono flex-1 truncate font-semibold">{o.name}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-2 border-t border-border bg-secondary/40 px-5 py-3.5">
-          {readOnly && (
-            <span className="text-[11px] text-amber">Read-only — delete is disabled</span>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="button" className="btn btn-danger btn-sm" disabled={readOnly} onClick={onConfirm}>
-              <Trash2 className="h-3.5 w-3.5" strokeWidth={2.3} aria-hidden="true" />
-              Remove {selected.length} object{selected.length === 1 ? '' : 's'}
             </button>
           </div>
         </div>
