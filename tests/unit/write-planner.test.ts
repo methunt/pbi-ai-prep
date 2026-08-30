@@ -840,6 +840,159 @@ describe('planWrites — rename cascade (report JSON field bindings)', () => {
     expect(plans.has('Report.Report/definition/pages/page1/visuals/visual5/visual.json')).toBe(false)
   })
 })
+
+describe('planWrites — rename cascade (relationships.tmdl dot-syntax)', () => {
+  const { texts: fixtureTexts, objects, graph } = loadFixture()
+  const amount = objects.find((o) => o.name === 'Amount' && o.type === 'column' && o.table === 'Sales') as ModelObject
+  const region = objects.find((o) => o.name === 'Region' && o.type === 'column' && o.table === 'Sales') as ModelObject
+
+  it('rewrites a column endpoint (fromColumn) leaving the table side untouched', () => {
+    const relText = 'relationship 40dd0332-cd67-44fb-8a63-739aa271a68a\n\tfromColumn: Sales.Amount\n\ttoColumn: Region.Region\n'
+    const texts = new Map([...fixtureTexts, ['definition/relationships.tmdl', relText]])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: amount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amount.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/relationships.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1)
+    const applied = applyPatches(relText, patches)
+    expect(applied).toContain('fromColumn: Sales.Revenue')
+    expect(applied).toContain('toColumn: Region.Region')
+  })
+
+  it('rewrites a quoted table endpoint on a table rename', () => {
+    const relText = "relationship 84ad5c4e-771d-f5bd-2826-745fd03bc88f\n\tfromColumn: 'Site Performance'.CreativeKey\n\ttoColumn: Sales.Amount\n"
+    const texts = new Map([...fixtureTexts, ['definition/relationships.tmdl', relText]])
+    const salesTable = objects.find((o) => o.name === 'Sales' && o.type === 'table') as ModelObject
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: salesTable.id,
+      field: 'name',
+      new: 'Sales Fact',
+      file: salesTable.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/relationships.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1)
+    const applied = applyPatches(relText, patches)
+    expect(applied).toContain("toColumn: 'Sales Fact'.Amount")
+    expect(applied).toContain("fromColumn: 'Site Performance'.CreativeKey")
+  })
+
+  it('never touches a same-named column on an unrelated table', () => {
+    const relText = 'relationship r1\n\tfromColumn: OtherTable.Region\n\ttoColumn: Sales.Region\n'
+    const texts = new Map([...fixtureTexts, ['definition/relationships.tmdl', relText]])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: region.id,
+      field: 'name',
+      new: 'Region Group',
+      file: region.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/relationships.tmdl')?.patches ?? []
+    const applied = applyPatches(relText, patches)
+    expect(applied).toContain('fromColumn: OtherTable.Region') // untouched
+    expect(applied).toContain("toColumn: Sales.'Region Group'") // renamed (quoted: contains a space)
+  })
+})
+
+describe('planWrites — rename cascade (roles/*.tmdl RLS DAX)', () => {
+  const { texts: fixtureTexts, objects, graph } = loadFixture()
+  const region = objects.find((o) => o.name === 'Region' && o.type === 'column' && o.table === 'Sales') as ModelObject
+
+  it('rewrites a tablePermission bracket reference', () => {
+    const rolesText = 'role RLS\n\tmodelPermission: read\n\n\ttablePermission Sales = Sales[Region] = USERPRINCIPALNAME()\n'
+    const texts = new Map([...fixtureTexts, ['definition/roles/RLS.tmdl', rolesText]])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: region.id,
+      field: 'name',
+      new: 'Region Group',
+      file: region.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/roles/RLS.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1)
+    const applied = applyPatches(rolesText, patches)
+    expect(applied).toContain('tablePermission Sales = Sales[Region Group] = USERPRINCIPALNAME()')
+  })
+})
+
+describe('planWrites — rename cascade (perspectives/*.tmdl membership tokens)', () => {
+  const { texts: fixtureTexts, objects, graph } = loadFixture()
+  const amount = objects.find((o) => o.name === 'Amount' && o.type === 'column' && o.table === 'Sales') as ModelObject
+  const chainA = objects.find((o) => o.name === 'Chain A' && o.type === 'measure') as ModelObject
+
+  it('rewrites a perspectiveColumn token scoped to the correct perspectiveTable', () => {
+    const perspText =
+      'perspective Fixture\n\n\tperspectiveTable Sales\n\n\t\tperspectiveColumn Amount\n\n' +
+      "\t\tperspectiveMeasure 'Chain A'\n\n\tperspectiveTable Region\n\n\t\tperspectiveColumn Amount\n"
+    const texts = new Map([...fixtureTexts, ['definition/perspectives/Fixture.tmdl', perspText]])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: amount.id,
+      field: 'name',
+      new: 'Revenue',
+      file: amount.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/perspectives/Fixture.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1) // only Sales.Amount — Region.Amount is a DIFFERENT table's column
+    const applied = applyPatches(perspText, patches)
+    const lines = applied.split('\n')
+    expect(lines.filter((l) => l.includes('perspectiveColumn'))).toEqual([
+      '\t\tperspectiveColumn Revenue',
+      '\t\tperspectiveColumn Amount',
+    ])
+  })
+
+  it('rewrites a quoted perspectiveMeasure token', () => {
+    const perspText = "perspective Fixture\n\n\tperspectiveTable Sales\n\n\t\tperspectiveMeasure 'Chain A'\n"
+    const texts = new Map([...fixtureTexts, ['definition/perspectives/Fixture.tmdl', perspText]])
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: chainA.id,
+      field: 'name',
+      new: 'Chain Top',
+      file: chainA.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/perspectives/Fixture.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1)
+    const applied = applyPatches(perspText, patches)
+    expect(applied).toContain("perspectiveMeasure 'Chain Top'")
+  })
+
+  it('rewrites the perspectiveTable token itself on a table rename', () => {
+    const perspText = 'perspective Fixture\n\n\tperspectiveTable Sales\n\n\t\tperspectiveColumn Amount\n'
+    const texts = new Map([...fixtureTexts, ['definition/perspectives/Fixture.tmdl', perspText]])
+    const salesTable = objects.find((o) => o.name === 'Sales' && o.type === 'table') as ModelObject
+    const journal = rec(objects, {
+      kind: 'field',
+      objectId: salesTable.id,
+      field: 'name',
+      new: 'Sales Fact',
+      file: salesTable.file,
+      context: 'user',
+    })
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('definition/perspectives/Fixture.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1)
+    const applied = applyPatches(perspText, patches)
+    expect(applied).toContain("perspectiveTable 'Sales Fact'")
+  })
+})
 // --- 6. Delete writes --------------------------------------------------------
 
 describe('planWrites — delete writes', () => {

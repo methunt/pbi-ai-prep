@@ -177,6 +177,15 @@ export function planWrites(
     for (const [file, patches] of planRenameCascadeReport(obj, newName, bundle)) {
       add(file, patches)
     }
+    for (const [file, patches] of planRenameCascadeRoles(obj, newName, bundle)) {
+      add(file, patches)
+    }
+    for (const [file, patches] of planRenameCascadeRelationships(obj, newName, bundle)) {
+      add(file, patches)
+    }
+    for (const [file, patches] of planRenameCascadePerspectives(obj, newName, bundle)) {
+      add(file, patches)
+    }
   }
 
   // Deletes: block span-deletes, whole-table-file empties, and — for source
@@ -470,6 +479,161 @@ function findDaxRenameSpans(
     })
   }
   return spans
+}
+
+// --- rename cascade: RLS role DAX (roles/*.tmdl tablePermission filters) ----
+//
+// `tablePermission X = X[Column] = <DAX expr>` uses the SAME bracket
+// reference syntax as measure/column DAX (confirmed against a real fixture:
+// `tablePermission Sec_Geo = Sec_Geo[UserName] = USERPRINCIPALNAME()`), but
+// roles/*.tmdl is never parsed into ModelObjects (tmdl-reader only
+// syntax-validates it) — so it never enters `graph.dependents()` and the
+// measure/column cascade above never reaches it. Reuses the exact same
+// masked-regex matcher; roles files are small, so the whole file is the scan
+// window (no declaration-span windowing needed).
+
+/** A roles/*.tmdl file, wherever it sits under a SemanticModel's definition/ tree. */
+const ROLES_FILE = /(^|[\\/])roles[\\/][^\\/]+\.tmdl$/i
+
+function planRenameCascadeRoles(
+  renamed: ModelObject,
+  newName: string,
+  bundle: LayerBundle,
+): Map<string, Patch[]> {
+  const byFile = new Map<string, Patch[]>()
+  const oldTable = isTableLike(renamed) ? null : renamed.table
+  for (const [file, text] of bundle.texts) {
+    if (!ROLES_FILE.test(file.replace(/\\/g, '/'))) continue
+    const mask = maskCommentsAndStrings(text)
+    const spans = findDaxRenameSpans(text, mask, oldTable, renamed.name)
+    if (spans.length === 0) continue
+    byFile.set(
+      file,
+      spans.map((s) => ({ start: s.start, end: s.end, replacement: newName })),
+    )
+  }
+  return byFile
+}
+
+// --- rename cascade: relationships.tmdl (fromColumn/toColumn dot-syntax) ----
+//
+// `fromColumn: Table.Column` / `toColumn: 'Table Name'.Column` — a
+// completely different reference format from DAX brackets, confirmed
+// against a real fixture (relationships.tmdl). tmdl-reader DOES already turn
+// these into graph edges (kind: 'relationship'), but the edge's `from` is a
+// feeder-minted relationship node id, never a ModelObject — so it's
+// invisible to `graph.dependents()`'s ModelObject-only lookup the DAX
+// cascade uses. Scanned directly by property line instead: precise (only
+// `fromColumn:`/`toColumn:` values, never arbitrary text) and reuses the
+// same table-then-column dot-split the reader's own parseColumnRef performs.
+
+/** A `fromColumn:`/`toColumn:` value line: optional single-quoted table, a
+ *  dot outside any quotes, then the column — mirrors parseColumnRef exactly. */
+const RELATIONSHIP_ENDPOINT = /^(\s*(?:fromColumn|toColumn)\s*:\s*)('[^']*'|[^.\r\n]+)\.([^\r\n]+?)\s*$/gm
+
+/** A relationships.tmdl file, wherever it sits under a SemanticModel's definition/ tree. */
+const RELATIONSHIPS_FILE = /(^|[\\/])relationships\.tmdl$/i
+
+function planRenameCascadeRelationships(
+  renamed: ModelObject,
+  newName: string,
+  bundle: LayerBundle,
+): Map<string, Patch[]> {
+  const byFile = new Map<string, Patch[]>()
+  const isTable = isTableLike(renamed)
+  for (const [file, text] of bundle.texts) {
+    if (!RELATIONSHIPS_FILE.test(file.replace(/\\/g, '/'))) continue
+    const patches: Patch[] = []
+    let m: RegExpExecArray | null
+    RELATIONSHIP_ENDPOINT.lastIndex = 0
+    while ((m = RELATIONSHIP_ENDPOINT.exec(text)) !== null) {
+      const [, prefix, tableRaw, columnRaw] = m
+      const table = tableRaw.startsWith("'") && tableRaw.endsWith("'") ? tableRaw.slice(1, -1) : tableRaw.trim()
+      const column = columnRaw.trim()
+      // Char offsets within the WHOLE text — converted to byte offsets only
+      // at the moment each patch is built (spans are UTF-8 bytes).
+      const tableCharStart = m.index + prefix.length
+      if (isTable) {
+        if (table !== renamed.name) continue
+        patches.push({
+          start: byteOffsetAt(text, tableCharStart),
+          end: byteOffsetAt(text, tableCharStart + tableRaw.length),
+          replacement: requotedName(tableRaw, newName),
+        })
+      } else {
+        if (table !== renamed.table || column !== renamed.name) continue
+        const columnCharStart = tableCharStart + tableRaw.length + 1 // +1 skips the '.'
+        patches.push({
+          start: byteOffsetAt(text, columnCharStart),
+          end: byteOffsetAt(text, columnCharStart + columnRaw.length),
+          replacement: requotedName(columnRaw.trim(), newName),
+        })
+      }
+    }
+    if (patches.length > 0) byFile.set(file, patches)
+  }
+  return byFile
+}
+
+// --- rename cascade: perspectives/*.tmdl membership tokens ------------------
+//
+// `perspectiveTable X` / `perspectiveColumn Y` / `perspectiveMeasure Z` /
+// `perspectiveHierarchy W` — bare name tokens (quoted the same way a
+// declaration's own name token is), scoped to the most recent
+// `perspectiveTable` line above them (confirmed against a real fixture).
+// Never parsed into a ModelObject or a graph edge at all (tmdl-reader only
+// attaches membership data, per its own header comment) — invisible to
+// every OTHER cascade, so this is the only path that reaches it.
+
+/** A perspectives/*.tmdl file, wherever it sits under a SemanticModel's definition/ tree. */
+const PERSPECTIVES_FILE = /(^|[\\/])perspectives[\\/][^\\/]+\.tmdl$/i
+
+const PERSPECTIVE_LINE = /^([ \t]*)(perspectiveTable|perspectiveColumn|perspectiveMeasure|perspectiveHierarchy)\s+('[^']*'|\S+)\s*$/gm
+
+function planRenameCascadePerspectives(
+  renamed: ModelObject,
+  newName: string,
+  bundle: LayerBundle,
+): Map<string, Patch[]> {
+  const byFile = new Map<string, Patch[]>()
+  const isTable = isTableLike(renamed)
+  for (const [file, text] of bundle.texts) {
+    if (!PERSPECTIVES_FILE.test(file.replace(/\\/g, '/'))) continue
+    const patches: Patch[] = []
+    let currentTable: string | null = null
+    let m: RegExpExecArray | null
+    PERSPECTIVE_LINE.lastIndex = 0
+    while ((m = PERSPECTIVE_LINE.exec(text)) !== null) {
+      const [, indent, keyword, tokenRaw] = m
+      const token = tokenRaw.startsWith("'") && tokenRaw.endsWith("'") ? tokenRaw.slice(1, -1) : tokenRaw
+      if (keyword === 'perspectiveTable') {
+        currentTable = token
+        if (isTable && token === renamed.name) {
+          const tokenCharStart = m.index + indent.length + keyword.length + 1
+          patches.push({
+            start: byteOffsetAt(text, tokenCharStart),
+            end: byteOffsetAt(text, tokenCharStart + tokenRaw.length),
+            replacement: requotedName(tokenRaw, newName),
+          })
+        }
+        continue
+      }
+      if (isTable || currentTable !== renamed.table || token !== renamed.name) continue
+      const kindMatches =
+        (keyword === 'perspectiveColumn' && renamed.type === 'column') ||
+        (keyword === 'perspectiveMeasure' && renamed.type === 'measure') ||
+        (keyword === 'perspectiveHierarchy' && renamed.type === 'hierarchy')
+      if (!kindMatches) continue
+      const tokenCharStart = m.index + indent.length + keyword.length + 1
+      patches.push({
+        start: byteOffsetAt(text, tokenCharStart),
+        end: byteOffsetAt(text, tokenCharStart + tokenRaw.length),
+        replacement: requotedName(tokenRaw, newName),
+      })
+    }
+    if (patches.length > 0) byFile.set(file, patches)
+  }
+  return byFile
 }
 
 /**
