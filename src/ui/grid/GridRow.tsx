@@ -65,7 +65,7 @@ function GridRow({
     <div
       role="row"
       data-row={rowIndex}
-      className={`grid-row${selected ? ' selected' : ''}${obj.hidden ? ' hidden' : ''}${flash ? ' grid-row-flash' : ''}`}
+      className={`grid-row${selected ? ' selected' : ''}${obj.hidden ? ' is-model-hidden' : ''}${flash ? ' grid-row-flash' : ''}`}
       onClick={(e) => onRowClick(e, rowIndex)}
     >
       <div role="gridcell" data-col="checkbox" className="grid-cell justify-center">
