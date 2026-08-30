@@ -244,48 +244,49 @@ function TableGroupRow({
 
   return (
     <div className="border-b border-border">
-      <button
-        type="button"
-        className="grid w-full grid-cols-[18px_1fr_auto] items-center gap-3 px-4 py-3 text-left hover:bg-primary/5"
-        onClick={onToggleExpand}
-        aria-expanded={expanded}
-        aria-label={`${group.key} table`}
-      >
-        <ChevronRight
-          className={`h-4 w-4 text-foreground/50 transition-transform ${expanded ? 'rotate-90' : ''}`}
-          strokeWidth={2.2}
-          aria-hidden="true"
-        />
-        <span
-          className={`h-2.5 w-2.5 flex-none rounded-full ${
-            allExcluded ? 'bg-foreground/30' : 'bg-primary'
-          }`}
-          aria-label={allExcluded ? 'All fields excluded' : 'Some fields included'}
-          title={allExcluded ? 'All fields excluded' : 'Some fields included'}
-        />
-        <span className="min-w-0">
+      <div className="flex items-center gap-2.5 px-4 py-3 hover:bg-primary/5">
+        <button
+          type="button"
+          className="flex flex-none items-center gap-2.5"
+          onClick={onToggleExpand}
+          aria-expanded={expanded}
+          aria-label={`${group.key} table`}
+        >
+          <ChevronRight
+            className={`h-4 w-4 text-foreground/50 transition-transform ${expanded ? 'rotate-90' : ''}`}
+            strokeWidth={2.2}
+            aria-hidden="true"
+          />
+          <span
+            className={`h-2.5 w-2.5 flex-none rounded-full ${
+              allExcluded ? 'bg-foreground/30' : 'bg-primary'
+            }`}
+            aria-label={allExcluded ? 'All fields excluded' : 'Some fields included'}
+            title={allExcluded ? 'All fields excluded' : 'Some fields included'}
+          />
           <span className="text-[13px] font-semibold">{group.key}</span>
-          <span className="ml-2 text-[11px] text-foreground/55">
-            {total} field{total === 1 ? '' : 's'} · {included}/{total} included · {synonymTotal}{' '}
-            synonym{synonymTotal === 1 ? '' : 's'}
-          </span>
+        </button>
+        <span className="pill pill-flat t-slate mono !text-[10px]">
+          {total} field{total === 1 ? '' : 's'}
         </span>
-        <span className="text-[11px] text-foreground/55">{expanded ? 'Collapse' : 'Expand'}</span>
-      </button>
+        <span className={`pill pill-flat mono !text-[10px] ${allExcluded ? 't-slate' : 't-amber'}`}>
+          {included}/{total} in AI
+        </span>
+        <span className="pill pill-flat t-cyan mono !text-[10px]">
+          {synonymTotal} synonym{synonymTotal === 1 ? '' : 's'}
+        </span>
+        <div className="ml-auto flex flex-none items-center gap-1.5">
+          <button type="button" className="btn btn-outline btn-sm" disabled={readOnly} onClick={() => onStageVisibility(false)}>
+            Include all
+          </button>
+          <button type="button" className="btn btn-outline btn-sm" disabled={readOnly} onClick={() => onStageVisibility(true)}>
+            Exclude
+          </button>
+        </div>
+      </div>
 
       {expanded && (
         <div className="border-t border-border bg-secondary/20 px-4 py-3">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="lbl !text-[10px]">Fields</span>
-            <div className="ml-auto flex items-center gap-1.5">
-              <button type="button" className="btn btn-outline btn-sm" disabled={readOnly} onClick={() => onStageVisibility(false)}>
-                Include all
-              </button>
-              <button type="button" className="btn btn-outline btn-sm" disabled={readOnly} onClick={() => onStageVisibility(true)}>
-                Exclude all
-              </button>
-            </div>
-          </div>
           <div className="flex flex-col divide-y divide-border/60">
             {group.rows.map((row) => (
               <FieldRow
@@ -361,6 +362,9 @@ function FieldRow({ row, readOnly, dependents, onToggleInclude, onAddTerm, onRem
           </div>
         )}
       </div>
+      <span className="mono tabular flex-none text-[11px] text-foreground/60">
+        {liveTermsCount}/{SYNONYM_CAP}
+      </span>
       <button
         type="button"
         role="switch"
@@ -370,9 +374,6 @@ function FieldRow({ row, readOnly, dependents, onToggleInclude, onAddTerm, onRem
         disabled={readOnly}
         onClick={onToggleInclude}
       />
-      <span className="mono tabular flex-none text-[11px] text-foreground/60">
-        {liveTermsCount}/{SYNONYM_CAP}
-      </span>
     </div>
   )
 }
