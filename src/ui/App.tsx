@@ -275,6 +275,8 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
         <span className="mono">TMDL 4.2.0</span>
         <span className="opacity-40">·</span>
         <span className="mono">UTF-8 · CRLF</span>
+        <span className="opacity-40">·</span>
+        <span className="mono">MIT · parsers: lineage-tracer, pbip-documenter</span>
         <span className="ml-auto mono">v1.0.0</span>
       </footer>
     </div>
