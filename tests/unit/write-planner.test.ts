@@ -1034,7 +1034,7 @@ describe('planWrites — delete writes', () => {
     const journal = rec(objects, { kind: 'delete', objectId: region.id, file: region.file, context: 'user' })
     const plans = planWrites(objects, journal, { texts })
     const patches = plans.get('definition/tables/Sales.tmdl')?.patches ?? []
-    expect(patches.length).toBe(2) // step insert + in-result rewrite
+    expect(patches.length).toBe(3) // TMDL block delete + step insert + in-result rewrite
     const applied = applyPatches(salesText, patches)
     expect(applied).toContain(
       '\t\t\t\t    PBIPreAI_RemoveUnusedCols = Table.RemoveColumns(Source, {"Region"})\n\t\t\t\tin\n',
@@ -1053,12 +1053,59 @@ describe('planWrites — delete writes', () => {
     ]
     const plans = planWrites(objects, journal, { texts })
     const patches = plans.get('definition/tables/Sales.tmdl')?.patches ?? []
-    expect(patches.length).toBe(2)
+    expect(patches.length).toBe(4) // 2 TMDL block deletes + step insert + in-result rewrite
     const applied = applyPatches(salesText, patches)
     expect(applied).toContain('PBIPreAI_RemoveUnusedCols = Table.RemoveColumns(Source, {"Region", "Amount"})')
     expect(applied.match(/PBIPreAI_RemoveUnusedCols =/g)?.length).toBe(1)
   })
 
+  it('handles #"quoted" M step names — the default Power Query step form', () => {
+    // The exact real-world shape that threw 'in result #"Changed Type" is
+    // not a step reference': every Power BI-minted table names its steps in
+    // the #"quoted" identifier form.
+    const text =
+      'table T\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n' +
+      '\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: Amount\n\n' +
+      '\tcolumn Region\n\t\tdataType: string\n\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n\t\tsourceColumn: Region\n\n' +
+      '\tpartition T = m\n\t\tmode: import\n\t\tsource =\n' +
+      "\t\t\t\tlet\n\t\t\t\t    #\"Changed Type\" = Table.TransformColumnTypes(Source, {{\"Amount\", type number}})\n\t\t\t\tin\n\t\t\t\t    #\"Changed Type\"\n"
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/T.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const region = objs.find((o) => o.name === 'Region' && o.type === 'column') as ModelObject
+    const journal = rec(objs, { kind: 'delete', objectId: region.id, file: region.file, context: 'user' })
+    const plans = planWrites(objs, journal, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g)
+    const patches = plans.get('definition/tables/T.tmdl')?.patches ?? []
+    expect(patches.length).toBe(3) // block delete + step insert + in-result rewrite
+    const applied = applyPatches(text, patches)
+    expect(applied).toContain(
+      'PBIPreAI_RemoveUnusedCols = Table.RemoveColumns(#"Changed Type", {"Region"})',
+    )
+    expect(applied).toContain('in\n\t\t\t\t    PBIPreAI_RemoveUnusedCols\n')
+    // The quoted step's own assignment line is byte-identical.
+    expect(applied).toContain('#"Changed Type" = Table.TransformColumnTypes(Source, {{"Amount", type number}})')
+  })
+
+  it('the in-result may reference an earlier step; the new step re-keys to the LAST step', () => {
+    const text =
+      'table T\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n' +
+      '\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: Amount\n\n' +
+      '\tcolumn Region\n\t\tdataType: string\n\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n\t\tsourceColumn: Region\n\n' +
+      '\tpartition T = m\n\t\tmode: import\n\t\tsource =\n' +
+      "\t\t\t\tlet\n\t\t\t\t    #\"Changed Type\" = Table.TransformColumnTypes(Source, {{\"Amount\", type number}}),\n\t\t\t\t    #\"Removed Columns\" = Table.RemoveColumns(#\"Changed Type\", {{\"Temp\"}})\n\t\t\t\tin\n\t\t\t\t    #\"Changed Type\"\n"
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/T.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const region = objs.find((o) => o.name === 'Region' && o.type === 'column') as ModelObject
+    const journal = rec(objs, { kind: 'delete', objectId: region.id, file: region.file, context: 'user' })
+    const plans = planWrites(objs, journal, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g)
+    const patches = plans.get('definition/tables/T.tmdl')?.patches ?? []
+    expect(patches.length).toBe(3) // block delete + step insert + in-result rewrite
+    const applied = applyPatches(text, patches)
+    // References the LAST step (#"Removed Columns"), not the in-result step.
+    expect(applied).toContain(
+      'PBIPreAI_RemoveUnusedCols = Table.RemoveColumns(#"Removed Columns", {"Region"})',
+    )
+    expect(applied).toContain('in\n\t\t\t\t    PBIPreAI_RemoveUnusedCols\n')
+  })
   it('delete wins over edits of the same object (project semantics)', () => {
     const chainA = objects.find((o) => o.name === 'Chain A' && o.type === 'measure') as ModelObject
     const journal = [
@@ -1078,6 +1125,199 @@ describe('planWrites — delete writes', () => {
     const doc = chainA.docCommentSpan as { start: number; end: number }
     const applied = applyPatches(salesText, patches)
     expect(applied).toBe(salesText.slice(0, doc.start) + salesText.slice(salesText.indexOf('\t/// Chain middle')))
+  })
+
+  it('deleting a CALCULATED table together with its columns skips the M surgery (wave-cascade combo)', () => {
+    // The exact real-model combo that threw 'no M partition (partition … = m)
+    // found': the cascade stages the calculated table AND its source-typed
+    // columns in one save. The whole file is span-deleted; no M step applies.
+    const text =
+      "table 'Currency View'\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n" +
+      "\tcolumn 'Field Currency'\n\t\tisHidden\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: [Value1]\n\n" +
+      "\tcolumn 'Currency Mode'\n\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n\t\tsourceColumn: [Value4]\n\n" +
+      "\tpartition 'Currency View' = calculated\n\t\tmode: import\n\t\tsource =\n\t\t\t\t{\n\t\t\t\t    (\"Currency\", 1)\n\t\t\t\t}\n"
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/Currency View.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const table = objs.find((o) => o.type === 'table') as ModelObject
+    const cols = objs.filter((o) => o.type === 'column') as ModelObject[]
+    expect(cols.length).toBe(2)
+    const journal = [
+      ...rec(objs, { kind: 'delete', objectId: table.id, file: table.file, context: 'user' }),
+      ...cols.flatMap((c) => rec(objs, { kind: 'delete', objectId: c.id, file: c.file, context: 'user' })),
+    ]
+    // Must NOT throw on the `= calculated` partition.
+    const plans = planWrites(objs, journal, { texts: new Map([['definition/tables/Currency View.tmdl', text]]) }, g)
+    const patches = plans.get('definition/tables/Currency View.tmdl')?.patches ?? []
+    expect(patches.length).toBe(1) // the whole-file delete only — no M surgery
+    expect(patches[0]).toMatchObject({ start: 0, end: byteLen(text) })
+  })
+
+  it('deleting a source column of a SURVIVING calculated table still refuses (dangling sourceColumn)', () => {
+    const text =
+      "table 'Currency View'\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n" +
+      "\tcolumn 'Field Currency'\n\t\tisHidden\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: [Value1]\n\n" +
+      "\tpartition 'Currency View' = calculated\n\t\tmode: import\n\t\tsource =\n\t\t\t\t{\n\t\t\t\t    (\"Currency\", 1)\n\t\t\t\t}\n"
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/Currency View.tmdl', text]]))
+    const col = objs.find((o) => o.type === 'column') as ModelObject
+    const journal = rec(objs, { kind: 'delete', objectId: col.id, file: col.file, context: 'user' })
+    // The table survives: removing the TMDL column alone would leave a
+    // sourceColumn the DAX still produces — Power BI would break. Refusing is
+    // the honest guard; silently skipping would corrupt the model.
+    expect(() =>
+      planWrites(objs, journal, { texts: new Map([['definition/tables/Currency View.tmdl', text]]) }),
+    ).toThrow(/no M partition/)
+  })
+
+
+  it('a SECOND delete-save on the same table extends the existing step (no duplicate let binding)', () => {
+    // Round 1 wrote PBIPreAI_RemoveUnusedCols; round 2 must extend its list —
+    // two let-bindings of one name is invalid M and Power BI refuses the file.
+    const text =
+      'table T\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n' +
+      '\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: Amount\n\n' +
+      '\tcolumn Region\n\t\tdataType: string\n\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n\t\tsourceColumn: Region\n\n' +
+      '\tpartition T = m\n\t\tmode: import\n\t\tsource =\n' +
+      '\t\t\t\tlet\n\t\t\t\t    Source = #table({"Amount", "Region"}, {})\n' +
+      '\t\t\t\t    PBIPreAI_RemoveUnusedCols = Table.RemoveColumns(Source, {"Region"})\n\t\t\t\tin\n\t\t\t\t    PBIPreAI_RemoveUnusedCols\n'
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/T.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const amount = objs.find((o) => o.name === 'Amount' && o.type === 'column') as ModelObject
+    const journal = rec(objs, { kind: 'delete', objectId: amount.id, file: amount.file, context: 'user' })
+    const plans = planWrites(objs, journal, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g)
+    const applied = applyPatches(text, plans.get('definition/tables/T.tmdl')?.patches ?? [])
+    expect(applied.match(/PBIPreAI_RemoveUnusedCols =/g)?.length).toBe(1)
+    expect(applied).toContain('Table.RemoveColumns(Source, {"Region", "Amount"})')
+  })
+
+  it('a step line that cannot be parsed falls back to a unique suffixed step', () => {
+    // The existing PBIPreAI step is not the exact Table.RemoveColumns shape
+    // we write (e.g. Power BI wrapped it or added logic) — extending in place
+    // is unsafe, so a fresh uniquely-named step chains off it instead.
+    const text =
+      'table T\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n' +
+      '\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: Amount\n\n' +
+      '\tcolumn Region\n\t\tdataType: string\n\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n\t\tsourceColumn: Region\n\n' +
+      '\tpartition T = m\n\t\tmode: import\n\t\tsource =\n' +
+      '\t\t\t\tlet\n\t\t\t\t    Source = #table({"Amount", "Region"}, {})\n' +
+      '\t\t\t\t    PBIPreAI_RemoveUnusedCols = Source\n\t\t\t\tin\n\t\t\t\t    PBIPreAI_RemoveUnusedCols\n'
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/T.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const amount = objs.find((o) => o.name === 'Amount' && o.type === 'column') as ModelObject
+    const journal = rec(objs, { kind: 'delete', objectId: amount.id, file: amount.file, context: 'user' })
+    const plans = planWrites(objs, journal, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g)
+    const applied = applyPatches(text, plans.get('definition/tables/T.tmdl')?.patches ?? [])
+    expect(applied).toContain('PBIPreAI_RemoveUnusedCols = Source')
+    expect(applied).toContain('PBIPreAI_RemoveUnusedCols 2 = Table.RemoveColumns(PBIPreAI_RemoveUnusedCols, {"Amount"})')
+  })
+
+  it('second-wave extension preserves a #"quoted" source argument verbatim', () => {
+    const text =
+      'table T\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n' +
+      '\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: Amount\n\n' +
+      '\tcolumn Region\n\t\tdataType: string\n\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n\t\tsourceColumn: Region\n\n' +
+      '\tpartition T = m\n\t\tmode: import\n\t\tsource =\n' +
+      '\t\t\t\tlet\n\t\t\t\t    #"Changed Type" = Table.TransformColumnTypes(Source, {{}})\n' +
+      '\t\t\t\t    PBIPreAI_RemoveUnusedCols = Table.RemoveColumns(#"Changed Type", {"Region"})\n\t\t\t\tin\n\t\t\t\t    PBIPreAI_RemoveUnusedCols\n'
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/T.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const amount = objs.find((o) => o.name === 'Amount' && o.type === 'column') as ModelObject
+    const journal = rec(objs, { kind: 'delete', objectId: amount.id, file: amount.file, context: 'user' })
+    const applied = applyPatches(text, planWrites(objs, journal, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g).get('definition/tables/T.tmdl')?.patches ?? [])
+    expect(applied).toContain('Table.RemoveColumns(#"Changed Type", {"Region", "Amount"})')
+  })
+})
+
+// --- 6b. Delete guard (Group B): no save may strand surviving references -----
+
+describe('planWrites — delete guard blocks stranded references (Group B)', () => {
+  const { texts, objects, graph } = loadFixture()
+  const salesText = texts.get('definition/tables/Sales.tmdl') as string
+
+  it('blocks when a surviving measure DAX references the deleted object, naming both', () => {
+    // Chain B = [Chain A] + [Chain C] — deleting Chain A strands Chain B.
+    const chainA = objects.find((o) => o.name === 'Chain A' && o.type === 'measure') as ModelObject
+    const journal = rec(objects, { kind: 'delete', objectId: chainA.id, file: chainA.file, context: 'user' })
+    expect(() => planWrites(objects, journal, { texts }, graph)).toThrow(
+      /save blocked to protect the model[\s\S]*measure 'Chain B'[\s\S]*deleted measure 'Chain A'/,
+    )
+  })
+
+  it('does NOT block when the referencing object dies in the same batch', () => {
+    // Chain A and Chain B die together — no surviving DAX references Chain A.
+    const chainA = objects.find((o) => o.name === 'Chain A' && o.type === 'measure') as ModelObject
+    const chainB = objects.find((o) => o.name === 'Chain B' && o.type === 'measure') as ModelObject
+    const journal = [
+      ...rec(objects, { kind: 'delete', objectId: chainA.id, file: chainA.file, context: 'user' }),
+      ...rec(objects, { kind: 'delete', objectId: chainB.id, file: chainB.file, context: 'user' }),
+    ]
+    expect(() => planWrites(objects, journal, { texts }, graph)).not.toThrow()
+  })
+
+  it('a TABLE-ONLY delete guards its CHILDREN\'s dependents (fold-cascade parity)', () => {
+    // The regression: Chain A lives in Sales. Delete the Sales table alone
+    // (the fold cascade takes Chain A with it) — a guard that only checked
+    // journal-deleted ids would let Chain B's [Chain A] dangle.
+    const sales = objects.find((o) => o.name === 'Sales' && o.type === 'table') as ModelObject
+    const journal = rec(objects, { kind: 'delete', objectId: sales.id, file: sales.file, context: 'user' })
+    expect(() => planWrites(objects, journal, { texts }, graph)).toThrow(
+      /save blocked to protect the model/,
+    )
+  })
+
+  it('blocks a relationship endpoint column AND the field parameter wrapping it', () => {
+    // The fixture's 'Field Slices' parameter wraps Sales[Region], and a
+    // relationship ends on it — deleting Region must name BOTH blockers.
+    const region = objects.find((o) => o.name === 'Region' && o.type === 'column' && o.table === 'Sales') as ModelObject
+    const journal = rec(objects, { kind: 'delete', objectId: region.id, file: region.file, context: 'user' })
+    expect(() => planWrites(objects, journal, { texts }, graph)).toThrow(
+      /table relationship/,
+    )
+    expect(() => planWrites(objects, journal, { texts }, graph)).toThrow(
+      /field parameter 'Field Slices' still wraps deleted column 'Region'/,
+    )
+  })
+
+  it('blocks a CALCULATED table whose partition DAX references the deleted column', () => {
+    const salesText = texts.get('definition/tables/Sales.tmdl') as string
+    const calcText =
+      "table 'Calc T'\n\tlineageTag: 44444444-4444-4444-8444-444444444444\n\n" +
+      "\tpartition 'Calc T' = calculated\n\t\tmode: import\n\t\tsource =\n\t\t\t\tROW(\"x\", Sales[Amount])\n"
+    const allTexts = new Map(texts)
+    allTexts.set('definition/tables/Calc T.tmdl', calcText)
+    const { objects: all, edges: allEdges } = parseTmdlProject(allTexts)
+    const g = buildGraph(all, allEdges)
+    const amount = all.find((o) => o.name === 'Amount' && o.type === 'column' && o.table === 'Sales') as ModelObject
+    const journal = rec(all, { kind: 'delete', objectId: amount.id, file: amount.file, context: 'user' })
+    expect(() => planWrites(all, journal, { texts: allTexts }, g)).toThrow(
+      /calculated table 'Calc T' still references deleted column 'Amount' in its partition DAX/,
+    )
+    // Sanity: the base Sales text must be untouched by this fixture build.
+    expect(salesText.length).toBeGreaterThan(0)
+  })
+
+  it('blocks a sortByColumn pointing at a deleted column from a surviving block', () => {
+    const text =
+      'table T\n\tlineageTag: 11111111-1111-4111-8111-111111111111\n\n' +
+      '\tcolumn Amount\n\t\tdataType: int64\n\t\tlineageTag: 22222222-2222-4222-8222-222222222222\n\t\tsourceColumn: Amount\n\t\tsortByColumn: Region\n\n' +
+      '\tcolumn Region\n\t\tdataType: string\n\t\tlineageTag: 33333333-3333-4333-8333-333333333333\n\t\tsourceColumn: Region\n\n' +
+      '\tpartition T = m\n\t\tmode: import\n\t\tsource =\n' +
+      '\t\t\t\tlet\n\t\t\t\t    Source = #table({"Amount", "Region"}, {})\n\t\t\t\tin\n\t\t\t\t    Source\n'
+    const { objects: objs, edges } = parseTmdlProject(new Map([['definition/tables/T.tmdl', text]]))
+    const g = buildGraph(objs, edges)
+    const region = objs.find((o) => o.name === 'Region' && o.type === 'column') as ModelObject
+    const journal = rec(objs, { kind: 'delete', objectId: region.id, file: region.file, context: 'user' })
+    expect(() =>
+      planWrites(objs, journal, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g),
+    ).toThrow(/'Region' is deleted but a surviving column still uses it as its sort-by column/)
+    // Deleting BOTH columns kills the sortByColumn line with its owner — no block.
+    const amount = objs.find((o) => o.name === 'Amount' && o.type === 'column') as ModelObject
+    const both = [
+      ...rec(objs, { kind: 'delete', objectId: region.id, file: region.file, context: 'user' }),
+      ...rec(objs, { kind: 'delete', objectId: amount.id, file: amount.file, context: 'user' }),
+    ]
+    expect(() =>
+      planWrites(objs, both, { texts: new Map([['definition/tables/T.tmdl', text]]) }, g),
+    ).not.toThrow(/sort-by/)
   })
 })
 

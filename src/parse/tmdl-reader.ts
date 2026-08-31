@@ -47,6 +47,16 @@ export interface ParseError {
   line: number | null
   message: string
 }
+/** Per-relationship display metadata (FR-7): the relationship's author-visible
+ *  identifier (the name on its declaration line) plus the two endpoint columns
+ *  it links. Surfaced in the cascade dialog so relationship dependents show
+ *  `R123 (Sales[Region] → Calendar[Date])` instead of a surrogate file#span id. */
+export interface RelMeta {
+  /** The relationship's identifier as the author wrote it (e.g. `8b59cb3b-...`). */
+  name: string
+  /** Endpoint columns the relationship connects, "FromTable[FromCol] → ToTable[ToCol]". */
+  endpoint: string
+}
 
 /** The reader's output: pristine model objects, relationship edges, and diagnostics. */
 export interface TmdlParseResult {
@@ -56,8 +66,11 @@ export interface TmdlParseResult {
   /** Endpoints the reader's resolver pass could not resolve (mirrors what buildGraph would mark broken). */
   brokenEdges: BrokenEdge[]
   errors: ParseError[]
+  /** Per-relationship display metadata (relationship node id → {name, endpoint}).
+   *  Every parsed relationship has an entry; consumers render
+   *  `name (endpoint)` for dependent relationship nodes. */
+  relMeta: Map<string, RelMeta>
 }
-
 /*
  * The values a partition may declare after `=` that name its source type rather
  * than open an expression. Anything else after `=` is an expression body.
@@ -790,12 +803,12 @@ interface RelationshipParse {
   file: string
   text: string
   line: number
+  name: string | null
   fromTable: string | null
   fromColumn: string | null
   toTable: string | null
   toColumn: string | null
 }
-
 /**
  * Parse relationships.tmdl. A column reference like "'Table Name'.Column" or
  * "Table.Column" splits at the dot outside any quotes, and both sides
@@ -825,10 +838,16 @@ function parseRelationships(file: string, text: string, lineBox: { line: number 
     const { trimmed, indent } = l
     if (indent === 0 && trimmed.startsWith('relationship')) {
       if (current) relationships.push(current)
+      // The declaration shape is `relationship <id-or-name>` (e.g. `relationship 8b59cb3b-...`
+      // or `relationship 0c1a2b3c4d...`). Strip the keyword + whitespace and
+      // keep whatever the author wrote so the cascade dialog can name this
+      // relationship instead of showing its surrogate file#byte-span id.
+      const name = trimmed.slice('relationship'.length).trim() || null
       current = {
         file,
         text,
         line: l.line,
+        name,
         fromTable: null,
         fromColumn: null,
         toTable: null,
@@ -1072,6 +1091,7 @@ export function parseTmdlProject(files: Map<string, string>): TmdlParseResult {
   const edges: Edge[] = []
   const brokenEdges: BrokenEdge[] = []
   const errors: ParseError[] = []
+  const relMeta = new Map<string, RelMeta>()
   const index = buildFileIndex(files)
   const lineBox = { line: -1 }
 
@@ -1152,6 +1172,18 @@ export function parseTmdlProject(files: Map<string, string>): TmdlParseResult {
         errors.push({ file: rel.file, line: rel.line, message: errorMessage(err) })
         continue
       }
+      // Capture per-relationship display metadata so the cascade dialog can
+      // name this relationship node instead of showing the surrogate
+      // `file#start-end` id. Name is the author's identifier on the
+      // declaration line (often a GUID); endpoint names the columns the
+      // relationship connects.
+      if (rel.name !== null) {
+        const endpoint =
+          rel.fromTable !== null && rel.fromColumn !== null && rel.toTable !== null && rel.toColumn !== null
+            ? `${rel.fromTable}[${rel.fromColumn}] → ${rel.toTable}[${rel.toColumn}]`
+            : 'unresolved endpoints'
+        relMeta.set(relNode, { name: rel.name, endpoint })
+      }
       for (const [tableRef, columnRef] of [
         [rel.fromTable, rel.fromColumn],
         [rel.toTable, rel.toColumn],
@@ -1185,7 +1217,7 @@ export function parseTmdlProject(files: Map<string, string>): TmdlParseResult {
   }
   if (memberships.length > 0) attachMembership(memberships, objects)
 
-  return { objects, edges, brokenEdges, errors }
+  return { objects, edges, brokenEdges, errors, relMeta }
 }
 
 /**

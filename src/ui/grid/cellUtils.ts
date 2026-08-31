@@ -66,6 +66,18 @@ export function pendingRenameRecordId(
   return undefined
 }
 
+/**
+ * Table-classified rows display a PLAIN "Used"/"Unused" with no number: a
+ * table's total is the boolean parent-of-children roll-up, so "Used 1" would
+ * read as a literal single-consumer count, which it isn't. Shared by the
+ * grid Used cell, the AI-schema field rows, and the lineage side panel so
+ * all three agree on the no-number rule for the same set of kinds
+ * (table + calculated tables + field parameters + calculation groups).
+ */
+export function isTableLikeType(type: string): boolean {
+  return type === 'table' || type === 'fieldParameter' || type === 'calculationGroup'
+}
+
 /** FR-9 used-pill class: 0 → light-blue highlight, 1–5 grey, 6+ grey strong. */
 export function usedClass(total: number): string {
   if (total === 0) return 'u0'

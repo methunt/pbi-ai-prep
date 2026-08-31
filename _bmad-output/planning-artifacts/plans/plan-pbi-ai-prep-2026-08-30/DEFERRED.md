@@ -1,8 +1,6 @@
 # Deferred Work — PBI AI Prep (durable record)
 
-> **Purpose.** The subagent-driven-development ledger (`.superpowers/sdd/IMPLEMENTATION-PLAN/progress.md`) is gitignored scratch — it is deleted after the final whole-branch review. This file is the **durable, git-tracked** record of deferred work, rulings, and open questions so nothing is silently discarded.
-
-**Status: 2026-08-30, build in progress (Tasks 0.1–4.3 complete; usage gate GREEN; fidelity gate GREEN).**
+> **Purpose.** The subagent-driven-development ledger (`.superpowers/sdd/IMPLEMENTATION-PLAN/progress.md`) was originally gitignored scratch; it is now **git-tracked for version history** (ledger + per-task briefs/reports; regenerable review diffs and borrowed parser sources are cleaned per wave via `.superpowers/sdd/.gitignore`). This file remains the **durable, distilled** record of deferred work, rulings, and open questions so nothing is silently discarded.
 
 ## 1. Deferred Minors (non-blocking; consciously parked per SDD rules)
 
@@ -80,3 +78,27 @@
 - **FR-26..29 (BYOK / AI drafting)** — deferred to v2 (first descope candidate; SM-C3 dilution risk).
 - **FR-19..21 (lineage canvas)** — NON-OPTIONAL for v1 (user-confirmed; the draggable node canvas + dependency stream trace must ship).
 - **Out of v1 scope (v2):** translation cultures beyond primary; in-tool diff preview; offline review round-trip; description template library + house-style; DAX reference rewriting on rename (warning only in v1); undo history beyond pending-changes discard.
+
+## 5. Post-final-review bug wave (user-reported; all fixed + regression-tested, commit `921ee5b`)
+
+### Root causes worth remembering (architecture lessons, not one-offs)
+- **Worker dropped a field**: `parseLineage` returned `{edges, broken, errors}` without `visualMeta` — the parse→broker→store→dialog chain was otherwise correct. Any layer-shape change must re-check EVERY hop in the worker boundary (plain-data contract).
+- **M step names**: Power Query mints `#"Changed Type"` quoted identifiers; bare `xyz`/`xyz_dsds` also legal. `M_STEP_LINE`/`M_STEP_REF` initially accepted neither — regexes now cover both plus `""` escapes.
+- **Second-wave deletes**: minting a second `PBIPreAI_RemoveUnusedCols` binding is INVALID M (duplicate `let` names). The planner now extends its own existing step's list in place; suffixed fallback when the line can't be parsed. Corollary: line-span patches must re-emit the EOL (`byteEnd` includes the terminator).
+- **Source-column delete = 3 layers**: TMDL block delete + M step + `in` re-key. Missing the TMDL block left a `sourceColumn:` the query no longer produces → Power BI load error. This gap existed from the first ship.
+- **Table-delete cascades must share ONE rule**: `deletedIdsWithChildren` (domain/journal.ts) feeds BOTH `project()` (read-model fold) and the write planner's strand guard. Drift made the guard blind to children's dependents on table-only deletes (silent strand).
+- **Calculated tables** (`partition … = calculated`): no M query exists — whole-table delete skips M surgery; deleting a column of a SURVIVING calculated table still refuses (dangling sourceColumn).
+- **"Table-classified" ≠ `type === 'table'`**: fieldParameter + calculationGroup are separate ObjectTypes. Any parent/child index built on bare `'table'` silently excludes them (the usage containment roll-up had exactly this bug).
+- **Used/Unused display contract**: table-classified rows show plain `Used`/`Unused` (the total is a boolean roll-up, "Used 1" misreads); fields show `Used N`. Shared predicate `isTableLikeType` in cellUtils — grid, AI schema, and lineage panel must agree.
+
+### Hard guard added (Group B) — saves now BLOCK instead of corrupting
+`planDeleteBlockers` refuses the save naming every blocker: surviving DAX refs (measure/calcColumn/calcItem), field-parameter wraps, calculated-table partition refs, DAX function bodies, relationship endpoints (non-`byId` non-`visual:` dependents = feeder rel nodes), and `sortByColumn`/`groupByColumn` lines from surviving blocks. Same-batch deletes never block (dying together strands nothing).
+
+### Still WARNING-level (dialog names them; guard does not block — deliberate)
+- RLS role filter expressions referencing deleted objects
+- Hierarchy levels
+- Report visuals (report-level breakage; "Breaks N downstream" in the delete dialog)
+- `findMPartition` still plans on the FIRST partition only (multi-partition tables — inherited from 4.2)
+
+### Open question added (Power BI Desktop verification)
+7. Does Power BI Desktop's step consolidation preserve or rewrite our appended `PBIPreAI_RemoveUnusedCols` step on later manual query edits, and does the extend-in-place list survive re-save from Desktop? (until verified: assume the planner re-reads the file fresh each save, which it does)

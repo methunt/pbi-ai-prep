@@ -8,7 +8,7 @@
 // never a verdict). "Orphaned" = an object with no REMAINING dependents once
 // the cumulative staged-delete set is removed.
 
-import type { ModelObject } from '../../domain/objects'
+import type { ModelObject, ObjectType } from '../../domain/objects'
 import type { ObjectGraph } from '../../domain/graph'
 
 /** Table-classified kinds; deleting one empties its whole table file. */
@@ -107,7 +107,102 @@ export function deleteTitle(
     : `${still} of ${batch.length} selected objects are still referenced.`
 }
 
-/** Confirm-button label, pluralised to the planned total. */
 export function confirmLabel(total: number): string {
   return `Remove ${total} object${total === 1 ? '' : 's'}`
+}
+/** Per-kind visual label type for the cascade dialog aggregation. */
+export interface VisualMetaLike {
+  title?: string
+  type?: string
+}
+
+/** Per-rel display metadata type for the cascade dialog aggregation. */
+export interface RelMetaLike {
+  name: string
+  endpoint: string
+}
+
+/**
+ * Display labels for each ObjectType category in the cascade summary.
+ * Maps ObjectType → user-facing category name for the "Breaks N downstream"
+ * summary line. Sorting: visuals first, then model types by frequency.
+ */
+function getCategoryLabel(type: ObjectType): string {
+  const labels: Record<ObjectType, string> = {
+    table: 'Tables',
+    column: 'Columns',
+    calculatedColumn: 'Calculated Columns',
+    measure: 'Measures',
+    hierarchy: 'Hierarchies',
+    hierarchyLevel: 'Hierarchy Levels',
+    calculationGroup: 'Calculation Groups',
+    calculationItem: 'Calculation Items',
+    fieldParameter: 'Field Parameters',
+    daxFunction: 'DAX Functions',
+  }
+  return labels[type]
+}
+
+/**
+ * Categorize downstream dependents by kind and render as a compact summary.
+ *
+ * Why this exists: instead of listing 65 dependents individually
+ * (barChart × 4, treemap × 15, cardVisual × 8, ...), group by category
+ * to signal at a glance which *kinds* of objects break. Only non-zero
+ * categories appear.
+ *
+ * Categories (in order of display):
+ *   1. Downstream Visuals (all visual:* nodes, counted by type or title)
+ *   2. Model object types (Measures, Calculated Columns, etc., grouped by ObjectType)
+ *   3. Relationships (model-fed rel:* nodes not in the objects array)
+ *
+ * Output format: "Downstream Visuals - 60, Measures - 4, Calculated Columns - 1"
+ */
+export function summarizeDependents(
+  deps: readonly string[],
+  objects: ReadonlyArray<ModelObject> | null,
+): string {
+  const idToObject = objects ? new Map(objects.map(o => [o.id, o])) : null
+
+  // Count by category
+  const categories = new Map<string, number>()
+
+  for (const id of deps) {
+    let category: string
+
+    if (id.startsWith('visual:')) {
+      category = 'Downstream Visuals'
+    } else {
+      const obj = idToObject?.get(id)
+      if (obj) {
+        category = getCategoryLabel(obj.type)
+      } else {
+        // Not found in objects → likely a relationship or other external ref
+        category = 'Relationships'
+      }
+    }
+
+    categories.set(category, (categories.get(category) ?? 0) + 1)
+  }
+
+  // Format as "Category - N, Category - M, ..."
+  // Order: Downstream Visuals first, then model types, then Relationships last
+  const order = [
+    'Downstream Visuals',
+    'Tables',
+    'Columns',
+    'Calculated Columns',
+    'Measures',
+    'Hierarchies',
+    'Hierarchy Levels',
+    'Calculation Groups',
+    'Calculation Items',
+    'Field Parameters',
+    'DAX Functions',
+    'Relationships',
+  ]
+
+  const sorted = order.filter(cat => categories.has(cat))
+
+  return sorted.map(cat => `${cat} - ${categories.get(cat)}`).join(', ')
 }

@@ -138,6 +138,31 @@ describe('journal mutation doors (AD-4)', () => {
     useStore.getState().journalDiscard(afterAdd[0].recordId)
     expect(useStore.getState().journal).toHaveLength(0)
   })
+
+  it('journalDiscardAll empties the journal in one fold', () => {
+    useStore.getState().journalAdd(fieldEdit('c1', 'Net revenue'))
+    useStore.getState().journalAdd(deleteEdit('c2'))
+    expect(useStore.getState().journal).toHaveLength(2)
+    useStore.getState().journalDiscardAll()
+    expect(useStore.getState().journal).toHaveLength(0)
+    expect(useStore.getState().kpi.pendingEdits).toBe(0)
+    expect(useStore.getState().project.objects).toHaveLength(3)
+  })
+
+  it('applySaveCommit recomputes pendingEdits from the remaining journal', () => {
+    useStore.getState().journalAdd(fieldEdit('c1', 'Net revenue'))
+    expect(useStore.getState().kpi.pendingEdits).toBe(1)
+    // The save commits the written file's edits (all of them here) — the
+    // header chip + KPI card must read 0 immediately after.
+    useStore.getState().applySaveCommit(
+      { [FILE]: { text: 'x', spans: {} } },
+      useStore.getState().pristine,
+      [],
+      useStore.getState().layers,
+    )
+    expect(useStore.getState().journal).toHaveLength(0)
+    expect(useStore.getState().kpi.pendingEdits).toBe(0)
+  })
 })
 
 describe('projection through the fold (AD-4)', () => {

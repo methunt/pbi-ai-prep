@@ -18,6 +18,7 @@ import Landing from './chrome/Landing'
 import ThemeToggle from './chrome/ThemeToggle'
 import ErrorBoundary from './chrome/ErrorBoundary'
 import KpiCard, { type KpiTone } from './chrome/KpiCard'
+import PendingChangesDialog from './chrome/PendingChangesDialog'
 import ObjectGrid from './grid/ObjectGrid'
 import PrepForAi from './prep/PrepForAi'
 import LineageCanvas from './lineage/LineageCanvas'
@@ -111,7 +112,7 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
   const [saving, setSaving] = useState(false)
   const [saveOutcome, setSaveOutcome] = useState<SaveOutcome | null>(null)
   const [savedNotice, setSavedNotice] = useState(false)
-
+  const [pendingOpen, setPendingOpen] = useState(false)
   const saveDisabled = permission !== 'granted' || journal.length === 0 || saving
 
   const handleSave = async (overwrite = false): Promise<void> => {
@@ -248,9 +249,15 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
         </nav>
 
         <div className="flex items-center gap-2">
-          <span className={`text-[11px] ${readOnly ? 'text-amber' : 'text-foreground/55'}`}>
-            {readOnly ? 'Read-only' : `${kpi.pendingEdits} pending`}
-          </span>
+          {journal.length > 0 && (
+            <button
+              className="text-[11px] text-foreground/70 underline-offset-2 hover:text-foreground hover:underline"
+              onClick={() => setPendingOpen(true)}
+              aria-label={`${kpi.pendingEdits} pending changes — review`}
+            >
+              {readOnly ? 'Read-only' : `${kpi.pendingEdits} pending`}
+            </button>
+          )}
           <button
             type="button"
             className="btn btn-primary btn-sm"
@@ -297,6 +304,7 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
                 definition={card.text}
                 progress={card.tone === 'emerald' ? kpi.coverage : null}
                 className={i === 4 ? 'col-span-2 lg:col-span-1' : ''}
+                onClick={card.tone === 'cyan' && journal.length > 0 ? () => setPendingOpen(true) : undefined}
               />
             ))}
           </div>
@@ -409,6 +417,16 @@ function AppShell({ readOnly, projectName, kpi, activeTab, setActiveTab, tabRefs
             </div>
           </div>
         </div>
+      )}
+
+      {pendingOpen && journal.length > 0 && (
+        <PendingChangesDialog
+          onSave={() => {
+            setPendingOpen(false)
+            void handleSave(false)
+          }}
+          onClose={() => setPendingOpen(false)}
+        />
       )}
     </div>
   )

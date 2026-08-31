@@ -323,3 +323,85 @@ describe('parseReport — verified answers (FR-18)', () => {
     expect(noPrompt!.verifiedAnswers).toEqual([])
   })
 })
+
+describe('parseReport — visualMeta (per-visual labels for the cascade dialog)', () => {
+  it('captures both visualType and a modern object-shaped title', () => {
+    const text = JSON.stringify({
+      name: 'v-1',
+      visual: {
+        visualType: 'barChart',
+        title: { show: true, text: 'Sales by Region' },
+        query: { queryState: { Values: { projections: [{ field: colExpr('Sales', 'Region') }] } } },
+      },
+    })
+    const parsed = parseOne(text)
+    expect(parsed.visualMeta.get('visual:v-1')).toEqual({ title: 'Sales by Region', type: 'barChart' })
+  })
+
+  it('skips a hidden title (show: false) but keeps the visualType', () => {
+    const text = JSON.stringify({
+      name: 'v-2',
+      visual: {
+        visualType: 'columnChart',
+        title: { show: false, text: 'Hidden caption' },
+        query: { queryState: { Values: { projections: [{ field: colExpr('Sales', 'Region') }] } } },
+      },
+    })
+    const parsed = parseOne(text)
+    expect(parsed.visualMeta.get('visual:v-2')).toEqual({ title: undefined, type: 'columnChart' })
+  })
+
+  it('captures a legacy string-shaped title', () => {
+    const text = JSON.stringify({
+      name: 'v-3',
+      visual: {
+        visualType: 'slicer',
+        title: 'Filter by Region',
+        query: { queryState: { Values: { projections: [{ field: colExpr('Sales', 'Region') }] } } },
+      },
+    })
+    const parsed = parseOne(text)
+    expect(parsed.visualMeta.get('visual:v-3')).toEqual({ title: 'Filter by Region', type: 'slicer' })
+  })
+
+  it('omits empty-string title text', () => {
+    const text = JSON.stringify({
+      name: 'v-4',
+      visual: {
+        visualType: 'pieChart',
+        title: { show: true, text: '   ' },
+        query: { queryState: { Values: { projections: [{ field: colExpr('Sales', 'Region') }] } } },
+      },
+    })
+    const parsed = parseOne(text)
+    expect(parsed.visualMeta.get('visual:v-4')).toEqual({ title: undefined, type: 'pieChart' })
+  })
+
+  it('still records an entry when only the visualType is present (no title field)', () => {
+    const text = JSON.stringify({
+      name: 'v-5',
+      visual: {
+        visualType: 'card',
+        query: { queryState: { Values: { projections: [{ field: colExpr('Sales', 'Region') }] } } },
+      },
+    })
+    const parsed = parseOne(text)
+    expect(parsed.visualMeta.get('visual:v-5')).toEqual({ title: undefined, type: 'card' })
+  })
+
+  it('populates visualMeta even when the visual has zero bindings (the dialog still names it)', () => {
+    const text = JSON.stringify({
+      name: 'v-6',
+      visual: { visualType: 'textbox', title: { show: true, text: 'Caption only' } },
+    })
+    const parsed = parseOne(text)
+    expect(parsed.visualEdges).toEqual([])
+    expect(parsed.visualMeta.get('visual:v-6')).toEqual({ title: 'Caption only', type: 'textbox' })
+  })
+
+  it('returns an empty map for a map without visual.json (no metadata either)', () => {
+    const parsed = parseReport(new Map([['definition/database.json', '{}']]), model.objects)
+    expect(parsed).not.toBeNull()
+    expect(parsed!.visualMeta.size).toBe(0)
+  })
+})

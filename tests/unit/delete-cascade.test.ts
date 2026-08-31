@@ -20,6 +20,7 @@ import {
   newlyOrphaned,
   deleteTitle,
   confirmLabel,
+  summarizeDependents,
 } from '../../src/ui/grid/deleteCascade'
 
 function make(id: string, type: ObjectType, name: string, table: string): ModelObject {
@@ -143,5 +144,50 @@ describe('confirmLabel', () => {
   it('pluralises to the planned total (grows with the wave checkbox)', () => {
     expect(confirmLabel(5)).toBe('Remove 5 objects')
     expect(confirmLabel(1)).toBe('Remove 1 object')
+  })
+})
+
+describe('summarizeDependents — cascade dialog category buckets (visual density fix)', () => {
+  it('returns empty when no dependents', () => {
+    expect(summarizeDependents([], null)).toBe('')
+  })
+
+  it('shows only Downstream Visuals when all dependents are visual nodes', () => {
+    const visualMeta = new Map<string, { title?: string; type?: string }>()
+    expect(summarizeDependents(['visual:v-1', 'visual:v-2', 'visual:v-3'], null)).toBe('Downstream Visuals - 3')
+  })
+
+  it('mixes Downstream Visuals with model-object categories', () => {
+    const col = make('col-1', 'column', 'Amount', 'Sales')
+    const m1 = make('m-1', 'measure', 'Total A', 'Sales')
+    const m2 = make('m-2', 'measure', 'Total B', 'Sales')
+    const objects = [col, m1, m2]
+    const visualMeta = new Map<string, { title?: string; type?: string }>()
+    expect(
+      summarizeDependents(['visual:v-1', 'visual:v-2', 'col-1', 'm-1', 'm-2'], objects),
+    ).toBe('Downstream Visuals - 2, Columns - 1, Measures - 2')
+  })
+
+  it('shows only non-zero categories (Columns omitted when count is 0)', () => {
+    const m1 = make('m-1', 'measure', 'Total A', 'Sales')
+    const objects = [m1]
+    const visualMeta = new Map<string, { title?: string; type?: string }>()
+    expect(
+      summarizeDependents(['visual:v-1', 'm-1'], objects),
+    ).toBe('Downstream Visuals - 1, Measures - 1')
+  })
+
+  it('categorizes unrecognized ids (no model object) as Relationships', () => {
+    const m1 = make('m-1', 'measure', 'Total A', 'Sales')
+    const objects = [m1]
+    const visualMeta = new Map<string, { title?: string; type?: string }>()
+    expect(
+      summarizeDependents(['rel:unknown-1', 'm-1'], objects),
+    ).toBe('Measures - 1, Relationships - 1')
+  })
+
+  it('handles null visualMeta and model gracefully (both pass through)', () => {
+    expect(summarizeDependents(['visual:v-1'], null)).toBe('Downstream Visuals - 1')
+    expect(summarizeDependents(['rel:r-1'], null)).toBe('Relationships - 1')
   })
 })

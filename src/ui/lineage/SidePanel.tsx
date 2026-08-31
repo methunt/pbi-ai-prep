@@ -16,6 +16,7 @@ import { ArrowLeft } from 'lucide-react'
 import { useStore } from '../../state/store'
 import type { ModelObject, ObjectType } from '../../domain/objects'
 import { TYPE_META } from '../grid/typeMeta'
+import { isTableLikeType } from '../grid/cellUtils'
 
 const NAME_OF = (id: string, objectsById: Record<string, ModelObject>): string =>
   objectsById[id]?.name ?? id
@@ -141,7 +142,9 @@ export default function SidePanel() {
           <span className={`pill pill-flat ${kind ? PILL[kind] ?? 't-slate' : 't-cyan'} !text-[10px]`}>
             {kind ? TYPE_META[kind].label : 'visual'}
           </span>
-          <span className="pill pill-flat u6 !text-[10px]">Used {total}</span>
+          <span className="pill pill-flat u6 !text-[10px]">
+            {total === 0 ? 'Unused' : kind !== undefined && isTableLikeType(kind) ? 'Used' : `Used ${total}`}
+          </span>
         </div>
       </div>
 
