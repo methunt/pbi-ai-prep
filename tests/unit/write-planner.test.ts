@@ -839,6 +839,57 @@ describe('planWrites — rename cascade (report JSON field bindings)', () => {
     const plans = planWrites(objects, journal, { texts }, graph)
     expect(plans.has('Report.Report/definition/pages/page1/visuals/visual5/visual.json')).toBe(false)
   })
+
+  it('TWO renames hitting the SAME report file emit ONE whole-file patch (no overlap)', () => {
+    // The reported bug: per-rename whole-file cascades on one visual.json
+    // produced two identical [0, len) patches — the overlap guard threw
+    // "overlapping patches … share at least one byte" and the save failed.
+    const visualJson = JSON.stringify({
+      name: 'v-6',
+      visual: {
+        visualType: 'tableEx',
+        query: {
+          queryState: {
+            Values: {
+              projections: [
+                { field: measureExpr('Sales', 'Chain A'), queryRef: 'Sales.Chain A' },
+                { field: colExpr('Sales', 'Amount'), queryRef: 'Sales.Amount' },
+              ],
+            },
+          },
+        },
+      },
+    })
+    const texts = new Map([
+      ...fixtureTexts(),
+      ['Report.Report/definition/pages/page1/visuals/visual1/visual.json', visualJson],
+    ])
+    const journal = [
+      ...rec(objects, {
+        kind: 'field',
+        objectId: chainA.id,
+        field: 'name',
+        new: 'Chain Top',
+        file: chainA.file,
+        context: 'user',
+      }),
+      ...rec(objects, {
+        kind: 'field',
+        objectId: amount.id,
+        field: 'name',
+        new: 'Revenue',
+        file: amount.file,
+        context: 'user',
+      }),
+    ]
+    const plans = planWrites(objects, journal, { texts }, graph)
+    const patches = plans.get('Report.Report/definition/pages/page1/visuals/visual1/visual.json')?.patches ?? []
+    expect(patches.length).toBe(1) // ONE whole-file re-serialization, both remaps inside
+    const applied = JSON.parse(applyPatches(visualJson, patches))
+    const projections = applied.visual.query.queryState.Values.projections
+    expect(projections[0].field.Measure.Property).toBe('Chain Top')
+    expect(projections[1].field.Column.Property).toBe('Revenue')
+  })
 })
 
 describe('planWrites — rename cascade (relationships.tmdl dot-syntax)', () => {

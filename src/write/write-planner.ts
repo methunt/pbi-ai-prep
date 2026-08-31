@@ -183,9 +183,6 @@ export function planWrites(
     for (const [file, patches] of planRenameCascadeDax(obj, newName, graph, byId, model, fileOf)) {
       add(file, patches)
     }
-    for (const [file, patches] of planRenameCascadeReport(obj, newName, bundle)) {
-      add(file, patches)
-    }
     for (const [file, patches] of planRenameCascadeRoles(obj, newName, bundle)) {
       add(file, patches)
     }
@@ -195,6 +192,13 @@ export function planWrites(
     for (const [file, patches] of planRenameCascadePerspectives(obj, newName, bundle)) {
       add(file, patches)
     }
+  }
+  // Report JSON cascades are BATCHED across all renames: each rename's pass
+  // emits a WHOLE-FILE re-serialization, so per-rename calls on the same file
+  // produced two identical [0, len) patches — the overlap guard threw and the
+  // whole save failed. One pass per file, every rename applied in sequence.
+  for (const [file, patches] of planRenameCascadeReport(renames, bundle)) {
+    add(file, patches)
   }
 
   // Deletes: block span-deletes, whole-table-file empties, and — for source
@@ -874,19 +878,24 @@ function fieldPropertyOf(field: Record<string, unknown>): string | undefined {
  * files are — filtered to the `.Report/` definition tree by path.
  */
 function planRenameCascadeReport(
-  renamed: ModelObject,
-  newName: string,
+  renames: readonly { obj: ModelObject; newName: string }[],
   bundle: LayerBundle,
 ): Map<string, Patch[]> {
   const byFile = new Map<string, Patch[]>()
+  if (renames.length === 0) return byFile
   // A table rename changes the Entity for EVERY property bound to it
   // (`oldName: null` tells walkReportJson to match on Entity alone); a
   // column/measure/hierarchy rename changes just its own Property under an
   // unchanged Entity.
-  const oldEntity = isTableLike(renamed) ? renamed.name : renamed.table
-  const oldName = isTableLike(renamed) ? null : renamed.name
-  const newEntity = isTableLike(renamed) ? newName : renamed.table
-  const newFieldName = isTableLike(renamed) ? null : newName
+  const specs = renames.map(({ obj, newName }) => {
+    const isTable = isTableLike(obj)
+    return {
+      oldEntity: isTable ? obj.name : obj.table,
+      oldName: isTable ? null : obj.name,
+      newEntity: isTable ? newName : obj.table,
+      newFieldName: isTable ? null : newName,
+    }
+  })
   for (const [file, text] of bundle.texts) {
     if (!REPORT_JSON_FILE.test(file.replace(/\\/g, '/'))) continue
     let json: unknown
@@ -896,7 +905,14 @@ function planRenameCascadeReport(
       continue // an unparsable report file is skipped, never fatal (mirrors the reader)
     }
     if (!isJsonRecord(json)) continue
-    const changed = walkReportJson(json, oldEntity, oldName, newEntity, newFieldName)
+    // ALL renames applied in sequence to the ONE parsed tree → at most one
+    // whole-file patch per file, never two overlapping [0, len) patches.
+    // (Chained-name saves — rename A→B while B→C — resolve in journal order,
+    // matching how the TMDL cascade treats pristine-text occurrences.)
+    let changed = false
+    for (const spec of specs) {
+      if (walkReportJson(json, spec.oldEntity, spec.oldName, spec.newEntity, spec.newFieldName)) changed = true
+    }
     if (!changed) continue
     const serialized = JSON.stringify(json, null, 2) + '\n'
     byFile.set(file, [{ start: 0, end: byteLen(text), replacement: serialized }])
