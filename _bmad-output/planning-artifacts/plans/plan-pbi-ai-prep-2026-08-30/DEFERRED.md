@@ -1,8 +1,6 @@
 # Deferred Work — PBI AI Prep (durable record)
 
-> **Purpose.** The subagent-driven-development ledger (`.superpowers/sdd/IMPLEMENTATION-PLAN/progress.md`) is gitignored scratch — it is deleted after the final whole-branch review. This file is the **durable, git-tracked** record of deferred work, rulings, and open questions so nothing is silently discarded.
-
-**Status: 2026-08-30, build in progress (Tasks 0.1–4.3 complete; usage gate GREEN; fidelity gate GREEN).**
+> **Purpose.** The subagent-driven-development ledger (`.superpowers/sdd/IMPLEMENTATION-PLAN/progress.md`) was originally gitignored scratch; it is now **git-tracked for version history** (ledger + per-task briefs/reports; regenerable review diffs and borrowed parser sources are cleaned per wave via `.superpowers/sdd/.gitignore`). This file remains the **durable, distilled** record of deferred work, rulings, and open questions so nothing is silently discarded.
 
 ## 1. Deferred Minors (non-blocking; consciously parked per SDD rules)
 
