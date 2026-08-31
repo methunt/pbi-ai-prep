@@ -34,7 +34,7 @@
 //   field 'lsdlVisibility'     → new: boolean (true = Hidden) → Visibility
 //                                 { Value: 'Hidden'|'Visible', State: 'Authored' }
 // A synonym/visibility record for an object no entity binds AUTO-CREATES the
-import type { FieldJournalRecord, JournalRecord } from '../domain/journal'
+import { deletedIdsWithChildren, type FieldJournalRecord, type JournalRecord } from '../domain/journal'
 
 import type { ModelObject } from '../domain/objects'
 import type { Span } from '../domain/span'
@@ -118,7 +118,16 @@ export function planWrites(
   graph?: ObjectGraphLike,
 ): Map<string, { patches: Patch[] }> {
   const bundle = readLayers(layers)
-  const { edits, deletes } = foldJournal(journal)
+  const { edits, deletes: journalDeletes } = foldJournal(journal)
+  // The delete set EXPANDED with the fold-cascade rule (the SAME helper the
+  // read-model fold uses): a table delete takes its children — so their
+  // dependents (measures elsewhere, field parameters, relationships) get
+  // strand-guarded exactly as if the user had staged the children too.
+  // Guard-only: planning iterates the journal's own deletes (the table's
+  // whole-file span-delete already covers the children — planning them
+  // individually would overlap the file patch).
+  const deletes = deletedIdsWithChildren(model, journal)
+  for (const objectId of deletes) edits.delete(objectId) // deletes win over edits, cascade victims included
   const byId = new Map(model.map((o) => [o.id, o]))
   const plans = new Map<string, Patch[]>()
   const add = (file: string, patches: Patch[]): void => {
@@ -192,7 +201,14 @@ export function planWrites(
   // columns — the per-table PBIPreAI_RemoveUnusedCols M step (one step per
   // table no matter how many columns died).
   const columnDeletes = new Map<string, ModelObject[]>()
-  for (const objectId of deletes) {
+  // Files whose table-classified object dies in this same save. The whole
+  // file block is span-deleted below, so source-column M surgery on them is
+  // meaningless — and on a calculated table (`partition … = calculated`,
+  // no M query) findMPartition would throw and block the entire save. The
+  // delete dialog's wave cascade stages exactly this combo: the table, then
+  // its orphaned columns as the next round.
+  const deletedTableFiles = new Set<string>()
+  for (const objectId of journalDeletes) {
     const obj = requireObject(objectId)
     if (obj.type === 'column') {
       const bucket = columnDeletes.get(obj.file)
@@ -200,10 +216,23 @@ export function planWrites(
       else columnDeletes.set(obj.file, [obj])
       continue
     }
+    if (TABLE_DELETE_TYPES.has(obj.type)) deletedTableFiles.add(obj.file)
     add(obj.file, plansForDelete(obj, fileOf(obj.file)))
   }
   for (const [file, cols] of columnDeletes) {
+    if (deletedTableFiles.has(file)) continue
     add(file, plansForColumnDeletes(cols, fileOf(file)))
+  }
+
+  // Group-B guard (FR-33 hard mode): a delete must not strand surviving
+  // references. Blocking here is atomic — nothing was written yet — and the
+  // message names every blocker so the user knows exactly what to delete or
+  // re-point first. Known v1 gaps that stay WARNING-level (the cascade dialog
+  // names them, this guard does not block): field-parameter JSON refs, RLS
+  // role filters, hierarchy levels, report visuals (report-level breakage).
+  const blockers = planDeleteBlockers(deletes, byId, graph, columnDeletes, deletedTableFiles, plans, fileOf)
+  if (blockers.length > 0) {
+    throw new Error(`planWrites: save blocked to protect the model — ${[...new Set(blockers)].join(' · ')}`)
   }
 
   // LSDL: all records for one culture file fold into ONE re-serialization of
@@ -955,13 +984,109 @@ function plansForDelete(obj: ModelObject, file: FileSource): Patch[] {
   if (BLOCK_DELETE_TYPES.has(obj.type)) return [planBlockDelete(obj, file)]
   throw new Error(`planWrites: deleting a ${obj.type} (${JSON.stringify(obj.name)}) is not supported by the planner`)
 }
+/** Object kinds whose DAX text breaks visibly when a referenced object dies. */
+const DAX_REF_TYPES: ReadonlySet<string> = new Set(['measure', 'calculatedColumn', 'calculationItem'])
+
+/**
+ * Group-B guard: name every surviving reference a delete batch would strand.
+ *   1. Surviving DAX-bearing dependents (measure / calculated column / calc
+ *      item) of any deleted object — their expression keeps a dead `[Name]`.
+ *   2. Relationship nodes: a relationship endpoint column dying while the
+ *      relationship survives is a model-load error. Relationships are not
+      deletable in v1, so ANY surviving relationship dependent blocks.
+ *   3. TMDL property refs inside the column's own table file: sortByColumn /
+ *      groupByColumn lines pointing at a deleted column from a SURVIVING
+ *      block (a line inside another deleted block vanishes with it).
+ * Dependents are the raw 1-hop consumer ids: model objects resolve in byId,
+ * report visuals are `visual:`-prefixed (report-level, never blocks), and
+ * every other id is a feeder-minted relationship node.
+ */
+function planDeleteBlockers(
+  deletes: ReadonlySet<string>,
+  byId: ReadonlyMap<string, ModelObject>,
+  graph: ObjectGraphLike | undefined,
+  columnDeletes: ReadonlyMap<string, readonly ModelObject[]>,
+  deletedTableFiles: ReadonlySet<string>,
+  plans: ReadonlyMap<string, Patch[]>,
+  fileOf: (file: string) => FileSource,
+): string[] {
+  const blockers: string[] = []
+  const kindLabel = (o: ModelObject): string =>
+    o.type === 'calculatedColumn' ? 'calculated column' : o.type === 'calculationItem' ? 'calculation item' : o.type
+  if (graph !== undefined) {
+    const deletedIds = new Set(deletes)
+    for (const objectId of deletes) {
+      const obj = byId.get(objectId)
+      if (obj === undefined) continue
+      for (const depId of graph.dependents(objectId)) {
+        if (deletedIds.has(depId)) continue // dies in the same save — no strand
+        const dep = byId.get(depId)
+        if (dep !== undefined) {
+          if (DAX_REF_TYPES.has(dep.type)) {
+            blockers.push(
+              `${kindLabel(dep)} '${dep.name}' still references deleted ${obj.type} '${obj.name}' in its DAX — delete or re-point it first`,
+            )
+          } else if (dep.type === 'fieldParameter') {
+            // A field parameter's extendedProperty JSON wraps the column by
+            // name — a dead wrap entry is a broken parameter.
+            blockers.push(
+              `field parameter '${dep.name}' still wraps deleted ${obj.type} '${obj.name}' — delete or re-point it first`,
+            )
+          } else if (dep.type === 'table') {
+            // A plain table emits no edges; a table-typed dependent is a
+            // CALCULATED table whose partition DAX references the deleted
+            // object (calcObject edge).
+            blockers.push(
+              `calculated table '${dep.name}' still references deleted ${obj.type} '${obj.name}' in its partition DAX — delete or re-point it first`,
+            )
+          } else if (dep.type === 'daxFunction') {
+            blockers.push(
+              `DAX function '${dep.name}' still references deleted ${obj.type} '${obj.name}' in its body — delete or re-point it first`,
+            )
+          }
+        } else if (!depId.startsWith('visual:')) {
+          blockers.push(
+            `${obj.type} '${obj.name}' is an endpoint of a table relationship — delete that relationship in Power BI Desktop first`,
+          )
+        }
+      }
+    }
+  }
+  // Property refs live in the deleted column's own table file (sortByColumn /
+  // groupByColumn are same-table properties by TMDL semantics).
+  for (const [file, cols] of columnDeletes) {
+    if (deletedTableFiles.has(file)) continue
+    const names = new Set(cols.map((c) => c.name))
+    const src = fileOf(file)
+    const vanishing = (plans.get(file) ?? []).filter((p) => p.replacement === '' && p.end > p.start)
+    for (const line of src.lines) {
+      const match = /^\s*(sortByColumn|groupByColumn):\s*(.+)$/.exec(line.content)
+      if (match === null) continue
+      const ref = match[2].trim().replace(/^'(.*)'$/, '$1')
+      if (!names.has(ref)) continue
+      // The line disappears when its owning block is deleted in this batch.
+      if (vanishing.some((p) => p.start <= line.byteStart && line.byteEnd <= p.end)) continue
+      blockers.push(
+        `column '${ref}' is deleted but a surviving column still uses it as its ${match[1] === 'sortByColumn' ? 'sort-by column' : 'group-by column'} in ${file} — re-point or delete that column first`,
+      )
+    }
+  }
+  return blockers
+}
 
 // --- source-column deletes: the fresh final M step ---------------------------
 
 const M_STEP_NAME = 'PBIPreAI_RemoveUnusedCols'
 
-const M_STEP_LINE = /^\s*(?:"([^"]+)"|([A-Za-z_][A-Za-z0-9_.]*))\s*=/
-const M_STEP_REF = /^(?:"[^"]+"|[A-Za-z_][A-Za-z0-9_.]*)$/
+/**
+ * One M step-assignment line. The identifier may be bare (`Source`) or the
+ * #"quoted" form (`#"Changed Type"` — quote-doubled escapes inside). The
+ * #"quoted" form is what Power Query's UI mints for every default step
+ * (Changed Type, Renamed Columns, …); missing it made every real-world
+ * table throw "is not a step reference" on delete.
+ */
+const M_STEP_LINE = /^\s*(?:#?"([^"]*)"(?:\s*=\s*|$)|([A-Za-z_][A-Za-z0-9_.]*)\s*=)/
+const M_STEP_REF = /^(?:#?"(?:[^"]|"")*"|[A-Za-z_][A-Za-z0-9_.]*)$/
 
 /** M string literal (doubled-quote escaping). */
 function mString(name: string): string {
@@ -1055,22 +1180,81 @@ function findMPartition(lines: LineEntry[]): MPartition {
 }
 
 function plansForColumnDeletes(cols: ModelObject[], file: FileSource): Patch[] {
+  // TMDL side: each deleted column's declaration block must go too — the M
+  // step alone would leave a `sourceColumn` the query no longer produces,
+  // which is a Power BI load error. Blocks sit above the partition, so these
+  // never overlap the M patches below.
+  const blockPatches = cols.map((c) => planBlockDelete(c, file))
   const partition = findMPartition(file.lines)
   const stepIndent = indentOf(partition.lastStep.line.content)
-  const columns = cols.map((c) => mString(c.name)).join(', ')
-  const stepLine = `${stepIndent}${M_STEP_NAME} = Table.RemoveColumns(${mStepRef(partition.lastStep.name, partition.lastStep.quoted)}, {${columns}})`
   const stepEol = lineEol(partition.lastStep.line)
   const at = file.lines[partition.inIdx].byteStart
+  const inPatch: Patch = {
+    start: partition.result.contentStart,
+    end: partition.result.line.byteStart + byteLen(partition.result.line.content),
+    replacement: M_STEP_NAME,
+  }
+
+  // Second-wave delete: the step already exists as the final step (a previous
+  // save wrote it). M let-bindings must be UNIQUE — minting another
+  // PBIPreAI_RemoveUnusedCols would write a file Power BI refuses to load.
+  // Extend the existing step's column list instead.
+  if (partition.lastStep.name === M_STEP_NAME) {
+    const parsed = parseRemoveColumnsLine(partition.lastStep.line.content)
+    if (parsed !== null) {
+      const merged = [...new Set([...parsed.columns, ...cols.map((c) => c.name)])]
+      const rewritten = `${stepIndent}${M_STEP_NAME} = Table.RemoveColumns(${parsed.source}, {${merged.map(mString).join(', ')}})${stepEol}`
+      const patches: Patch[] = [
+        ...blockPatches,
+        // line.byteEnd includes the terminator — re-emit it.
+        { start: partition.lastStep.line.byteStart, end: partition.lastStep.line.byteEnd, replacement: rewritten },
+      ]
+      const resultText = file.text.slice(
+        partition.result.contentStart,
+        partition.result.line.byteStart + byteLen(partition.result.line.content),
+      )
+      // The in-result already points at the step — only re-target when it
+      // doesn't (e.g. Power BI reordered the query between saves).
+      if (resultText !== M_STEP_NAME) patches.push(inPatch)
+      return patches
+    }
+    // The line no longer matches the exact shape we write (Power BI may have
+    // reformatted it) — fall back to a unique suffix rather than corrupt.
+    const suffix = uniqueStepSuffix(file.text)
+    const name = suffix > 1 ? `${M_STEP_NAME} ${suffix}` : M_STEP_NAME
+    const stepLine = `${stepIndent}${name} = Table.RemoveColumns(${mStepRef(partition.lastStep.name, partition.lastStep.quoted)}, {${cols.map((c) => mString(c.name)).join(', ')}})`
+    return [
+      ...blockPatches,
+      { start: at, end: at, replacement: `${stepLine}${stepEol}` },
+      { ...inPatch, replacement: name },
+    ]
+  }
+
+  const columns = cols.map((c) => mString(c.name)).join(', ')
+  const stepLine = `${stepIndent}${M_STEP_NAME} = Table.RemoveColumns(${mStepRef(partition.lastStep.name, partition.lastStep.quoted)}, {${columns}})`
   return [
+    ...blockPatches,
     // The fresh final step, inserted directly before the `in` line.
     { start: at, end: at, replacement: `${stepLine}${stepEol}` },
     // The `in` result retargeted to the new step (steps themselves untouched).
-    {
-      start: partition.result.contentStart,
-      end: partition.result.line.byteStart + byteLen(partition.result.line.content),
-      replacement: M_STEP_NAME,
-    },
+    inPatch,
   ]
+}
+
+/** `… = Table.RemoveColumns(<source>, {<names>})` → source text + unescaped names. */
+function parseRemoveColumnsLine(line: string): { source: string; columns: string[] } | null {
+  const match = /=\s*Table\.RemoveColumns\(\s*(.+?)\s*,\s*\{(.*)\}\s*\)\s*$/.exec(line)
+  if (match === null) return null
+  const names = [...match[2].matchAll(/"((?:[^"]|"")*)"/g)].map((m) => m[1].replace(/""/g, '"'))
+  return { source: match[1], columns: names }
+}
+
+/** Next free "Name N" suffix so a fallback step never collides with an existing binding. */
+function uniqueStepSuffix(text: string): number {
+  let n = 1
+  const re = new RegExp(`${M_STEP_NAME}(?: (\\d+))? =`, 'g')
+  for (const m of text.matchAll(re)) n = Math.max(n, Number(m[1] ?? '1') + 1)
+  return n
 }
 
 // --- LSDL writes: the ONE sanctioned re-serialization ------------------------

@@ -120,7 +120,7 @@ function GridRow({
       />
 
       <div role="gridcell" data-col="used" className="grid-cell">
-        <UsedCell usage={usage} total={usage.total} isTable={obj.type === 'table'} />
+        <UsedCell usage={usage} total={usage.total} type={obj.type} />
       </div>
 
       <DescriptionCell

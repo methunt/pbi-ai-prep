@@ -101,11 +101,18 @@ export function buildGraph(objects: ModelObject[], edges: readonly Edge[] = []):
   // downstream, the table itself is used. There is no edge for this (a
   // table's declaration doesn't reference its columns); it's derived purely
   // from each child's own `.table` field.
+  // Table-CLASSIFIED kinds, not just 'table': field-parameter tables are
+  // typed 'fieldParameter' and calc groups 'calculationGroup' — the reader
+  // classifies them separately — and excluding them here made a fully-used
+  // field parameter show "Unused" at table level while its wrapped fields
+  // showed "Used N" (the exact misleading split the FR-9 rule exists to
+  // prevent). Same classification the fold cascade + delete dialog use.
+  const TABLE_CLASSIFIED: ReadonlySet<string> = new Set(['table', 'fieldParameter', 'calculationGroup'])
   const tableIdByName = new Map<string, string>()
-  for (const o of objects) if (o.type === 'table') tableIdByName.set(o.name.toLowerCase(), o.id)
+  for (const o of objects) if (TABLE_CLASSIFIED.has(o.type)) tableIdByName.set(o.name.toLowerCase(), o.id)
   const childrenOfTable = new Map<string, Set<string>>()
   for (const o of objects) {
-    if (o.type === 'table' || o.table === '') continue
+    if (TABLE_CLASSIFIED.has(o.type) || o.table === '') continue
     const tableId = tableIdByName.get(o.table.toLowerCase())
     if (tableId === undefined) continue
     let bucket = childrenOfTable.get(tableId)

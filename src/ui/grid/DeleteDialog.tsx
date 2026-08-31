@@ -21,14 +21,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { X } from 'lucide-react'
+import { useStore } from '../../state/store'
 import type { ModelObject } from '../../domain/objects'
 import type { ObjectGraph } from '../../domain/graph'
 import { TYPE_META } from './typeMeta'
-import { confirmLabel, deleteTitle, groupByTable, newlyOrphaned, remainingDependents } from './deleteCascade'
+import { confirmLabel, deleteTitle, groupByTable, newlyOrphaned, remainingDependents, summarizeDependents } from './deleteCascade'
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 export interface DeleteDialogProps {
   /** The round-1 selection (PRISTINE objects) being deleted. */
@@ -76,9 +74,27 @@ export default function DeleteDialog({
     for (const g of groupByTable(selected)) s.add(g.table)
     return s
   })
+  const visualMeta = useStore((s) => s.visualMeta)
+  const relMeta = useStore((s) => s.relMeta)
 
   const nameIndex = useMemo(() => new Map(model.map((o) => [o.id, o.name])), [model])
-  const nameFor = useCallback((id: string): string => nameIndex.get(id) ?? id, [nameIndex])
+  /** Resolve an id to its display label: model-object name → visualMeta (title || type)
+   *  → relMeta (name + endpoint) → raw id. Visual and relationship edge nodes are
+   *  feeder-minted and never live in `model.objects`, so without these meta maps
+   *  the cascade dialog would show raw `visual:<hash>` strings or surrogate
+   *  `file#byte-span` ids. */
+  const nameFor = useCallback(
+    (id: string): string => {
+      const modelName = nameIndex.get(id)
+      if (modelName !== undefined) return modelName
+      const v = visualMeta?.get(id)
+      if (v !== undefined) return v.title ?? v.type ?? id
+      const r = relMeta?.get(id)
+      if (r !== undefined) return `${r.name} (${r.endpoint})`
+      return id
+    },
+    [nameIndex, visualMeta, relMeta],
+  )
 
   // Objects already committed to deletion: the initial selection plus every
   // accepted round. Used to compute "still referenced" / per-object breakage as
@@ -90,6 +106,15 @@ export default function DeleteDialog({
   }, [stagedSoFar, selected])
 
   const groups = useMemo(() => groupByTable(selected), [selected])
+
+  // Generate the deletion label dynamically from the current round
+  const deletionLabel = useMemo(() => {
+    const batch = isOrphanRound ? roundCurrent : selected
+    if (batch.length === 0) return 'Delete'
+    if (batch.length === 1) return `Remove ${batch[0].name}`
+    if (isOrphanRound) return `Remove ${batch.length} orphaned objects`
+    return `Remove ${batch.length} objects`
+  }, [isOrphanRound, roundCurrent, selected])
 
   // AD-11 focus trap + restore. Capture the element that opened the dialog
   // (the Delete button) BEFORE focusing the panel; on close, restore focus to
@@ -288,7 +313,7 @@ export default function DeleteDialog({
                                   Breaks {deps.length} downstream:{' '}
                                 </span>
                                 <span className="mono text-destructive/85">
-                                  {deps.map(nameFor).join(', ')}
+                                  {summarizeDependents(deps, model)}
                                 </span>
                               </div>
                             )}
@@ -358,7 +383,7 @@ export default function DeleteDialog({
 
         <div className="flex items-center gap-2 border-t border-border bg-secondary/40 px-5 py-3.5">
           <span className="mono text-[11.5px] text-foreground/55">
-            Round {round} · PBIPreAI_RemoveUnusedCols
+            Round {round} · {deletionLabel}
           </span>
           {readOnly && (
             <span className="text-[11px] text-amber">Read-only — delete is disabled</span>

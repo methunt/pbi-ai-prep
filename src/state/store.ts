@@ -104,7 +104,15 @@ export interface SetProjectPayload {
 
 export interface StoreState {
   project: ProjectResult
-  journal: JournalRecord[]
+  /** Per-visual display metadata (visualId → {title?, type?}) committed by the
+   *  `lineage` layer (FR-7 display). Null until the lineage layer has parsed;
+   *  the cascade dialog falls back to the raw id when absent. */
+  visualMeta: ReadonlyMap<string, { title?: string; type?: string }> | null
+  /** Per-relationship display metadata (rel node id → {name, endpoint}). Committed
+   *  by the `objects` layer so the cascade dialog can name relationship
+   *  dependents instead of showing the surrogate `file#byte-span` id. Null
+   *  until the objects layer parses (relationships are TMDL-derived). */
+  relMeta: ReadonlyMap<string, { name: string; endpoint: string }> | null
   selectedIds: string[]
   filters: Filters
   layers: LayerMap
@@ -114,13 +122,17 @@ export interface StoreState {
   pristine: ModelObject[]
   /** Immutable dependency graph over the pristine model (AD-6). Surface read-only. */
   graph: ObjectGraph
-
-  /** Load/replace a parsed project; resets the journal and rebuilds the graph. */
+  journal: JournalRecord[]
+  setVisualMeta(meta: ReadonlyMap<string, { title?: string; type?: string }>): void
+  /** Commit the per-relationship label map produced by the `objects` layer. */
+  setRelMeta(meta: ReadonlyMap<string, { name: string; endpoint: string }>): void
   setProject(payload: SetProjectPayload): void
   /** The ONLY mutation door for a field edit or delete (wraps the domain fold). */
   journalAdd(rec: NewJournalRecord): void
   /** The ONLY mutation door to discard a staged change (wraps the domain fold). */
   journalDiscard(recordId: string): void
+  /** Empty the whole journal in one fold (pending-changes Discard all). */
+  journalDiscardAll(): void
   setFilter(partial: Partial<Omit<Filters, 'page' | 'sort'>>): void
   setSort(sort: SortSpec | null): void
   setPage(page: number): void
@@ -364,6 +376,8 @@ export const useStore = create<StoreState>()((set, get) => {
     layers: INITIAL_LAYERS,
     kpi: INITIAL_KPI,
     permission: 'unknown',
+    visualMeta: null,
+    relMeta: null,
     pristine: [],
     graph: buildGraph([]),
     activeTab: 'desc',
@@ -371,13 +385,13 @@ export const useStore = create<StoreState>()((set, get) => {
     lineageFocusNonce: 0,
     gridFocusId: null,
     gridFocusNonce: 0,
-
     setProject({ objects, files, name, edges = [] }) {
       const graph = buildGraph(objects, edges)
       set({
         pristine: objects,
         graph,
-        journal: [],
+        visualMeta: null,
+        relMeta: null,
         project: {
           objectsById: indexObjects(objects),
           objects,
@@ -395,6 +409,10 @@ export const useStore = create<StoreState>()((set, get) => {
 
     journalDiscard(recordId) {
       refold(domainJournalDiscard(get().pristine, get().journal, recordId))
+    },
+
+    journalDiscardAll() {
+      refold([])
     },
 
     setFilter(partial) {
@@ -467,10 +485,16 @@ export const useStore = create<StoreState>()((set, get) => {
           objectsById: indexObjects(objects),
         },
         journal,
-        layers,
+        // Recompute alongside the journal write — pendingEdits IS journal
+        // length; skipping this left the header chip + KPI card stale after
+        // a successful save.
         kpi: computeKpi(objects, prev.graph, journal),
+        visualMeta: null,
+        relMeta: null,
+        layers,
       })
     },
+
 
     mergeReportEdges(edges) {
       const prev = get()
@@ -480,6 +504,14 @@ export const useStore = create<StoreState>()((set, get) => {
         project: { ...prev.project, edges: merged },
         graph: buildGraph(prev.pristine, merged),
       })
+    },
+
+    setVisualMeta(meta) {
+      set({ visualMeta: meta })
+    },
+
+    setRelMeta(meta) {
+      set({ relMeta: meta })
     },
 
     setActiveTab(tab) {

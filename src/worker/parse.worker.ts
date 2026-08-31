@@ -40,6 +40,7 @@ interface ReportLineage {
   edges: Edge[]
   broken: { visual: string; field: string }[]
   errors: { file: string; message: string }[]
+  visualMeta: ReadonlyMap<string, { title?: string; type?: string }>
 }
 
 /** Derive the report-edge lineage from the same report parse the `report` layer uses. */
@@ -49,7 +50,10 @@ function parseLineage(
 ): ReportLineage | null {
   const report = parseReport(reportFiles, objects)
   if (report === null) return null
-  return { edges: report.edges, broken: report.broken, errors: report.errors }
+  // Forward visualMeta too — the cascade dialog labels visual dependents via
+  // `visualMeta` (FR-7 display); dropping it here forces the dialog to render
+  // raw `visual:<hash>` ids. Regression-tested via broker.test.ts.
+  return { edges: report.edges, broken: report.broken, errors: report.errors, visualMeta: report.visualMeta }
 }
 
 /** Pick the parse per layer and return the PLAIN domain data. */

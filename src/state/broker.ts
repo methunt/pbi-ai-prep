@@ -142,18 +142,28 @@ function commitObjects(layer: LayerName, data: unknown, deps: LayerDeps): void {
     name: deps.projectName ?? '',
     edges: result.edges,
   })
+  if (result.relMeta !== undefined) {
+    store.setRelMeta(result.relMeta as ReadonlyMap<string, { name: string; endpoint: string }>)
+  }
 }
 
 /** The `lineage` layer's worker result is the report-edge lineage. Merge its
  * report-derived visual edges into the graph so FR-7/FR-9 usage reflects report
- * reach (the graph is otherwise built from the TMDL edges alone). */
-function commitLineage(layer: LayerName, data: unknown): void {
-  if (layer !== 'lineage') return
-  const result = data as { edges?: readonly Edge[] } | null
-  if (result === null || result === undefined) return
-  if (!Array.isArray(result.edges)) return
-  useStore.getState().mergeReportEdges(result.edges)
-}
+ * reach (the graph is otherwise built from the TMDL edges alone), and commit
+ * the per-visual label map (visualMeta) so the cascade dialog can name visual
+ * dependents instead of showing their minted ids. */
+ function commitLineage(layer: LayerName, data: unknown): void {
+   if (layer !== 'lineage') return
+   const result = data as { edges?: readonly Edge[]; visualMeta?: ReadonlyMap<string, unknown> } | null
+   if (result === null || result === undefined) return
+   if (!Array.isArray(result.edges)) return
+   useStore.getState().mergeReportEdges(result.edges)
+   if (result.visualMeta !== undefined) {
+     // Cast through unknown — the broker accepts the worker's ReportParse shape;
+     // the store re-validates the entry shape on read.
+     useStore.getState().setVisualMeta(result.visualMeta as ReadonlyMap<string, { title?: string; type?: string }>)
+   }
+ }
 
 async function runParse(layer: LayerName, deps: LayerDeps): Promise<unknown> {
   useStore.getState().setLayerState(layer, { parseState: 'parsing' })

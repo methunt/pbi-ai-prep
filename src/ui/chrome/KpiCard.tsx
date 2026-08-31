@@ -18,6 +18,8 @@ export interface KpiCardProps {
   progress?: number | null
   /** Extra layout classes (e.g. grid span for the wide Coverage card). */
   className?: string
+  /** When set, the card acts as a button (e.g. Pending edits opens review). */
+  onClick?: () => void
 }
 
 /** Literal Tailwind class strings per tone (scanner picks them up verbatim). */
@@ -58,12 +60,11 @@ export default function KpiCard({
   icon,
   progress = null,
   className = '',
+  onClick,
 }: KpiCardProps) {
   const t = TONES[tone]
-  return (
-    <div
-      className={`relative overflow-hidden rounded-2xl border border-border bg-card p-3.5 transition-all ${t.border} ${className}`}
-    >
+  const body = (
+    <>
       <div className={`absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r ${t.bar}`} aria-hidden="true" />
       <div className="mb-2.5 flex items-start justify-between">
         {icon ? (
@@ -84,6 +85,24 @@ export default function KpiCard({
           <i style={{ width: `${progress}%` }} />
         </div>
       )}
+    </>
+  )
+  if (onClick !== undefined) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`relative w-full cursor-pointer overflow-hidden rounded-2xl border border-border bg-card p-3.5 text-left text-foreground transition-all ${t.border}`}
+      >
+        {body}
+      </button>
+    )
+  }
+  return (
+    <div
+      className={`relative overflow-hidden rounded-2xl border border-border bg-card p-3.5 transition-all ${t.border} ${className}`}
+    >
+      {body}
     </div>
   )
 }

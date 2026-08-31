@@ -396,4 +396,49 @@ describe('usage — table containment (a parent is used if a child is used)', ()
     expect(graph.usage('t-sales').total).toBe(1)
     expect(graph.usage('m-sales').total).toBe(0)
   })
+
+  it('a FIELD PARAMETER table rolls up its wrapped children: used fields make the param table used', () => {
+    // The reported bug: param tables are typed 'fieldParameter', not 'table'
+    // — the containment index missed them, so a fully-used parameter showed
+    // "Unused" at table level while its fields showed "Used N".
+    const paramTable = make('p-1', 'fieldParameter', 'Field Slices', '')
+    const paramCol = make('pc-1', 'column', 'Field Currency', 'Field Slices')
+    // A visual consumes the parameter's column (leaf edge).
+    const graph = buildGraph([paramTable, paramCol], [{ from: 'visual-1', to: 'pc-1', kind: 'visual' }])
+    expect(graph.usage('pc-1').total).toBe(1)
+    expect(graph.usage('p-1')).toEqual({ direct: 0, transitive: 0, leaf: 0, total: 1 })
+  })
+
+  it('a CALCULATION GROUP rolls up its calc items the same way', () => {
+    const group = make('cg-1', 'calculationGroup', 'Time Intelligence', '')
+    const item = make('ci-1', 'calculationItem', 'YTD', 'Time Intelligence')
+    const measure = make('m-1', 'measure', 'YTD Sales', 'Sales')
+    const graph = buildGraph([group, item, measure], [{ from: 'm-1', to: 'ci-1', kind: 'calcItem' }])
+    expect(graph.usage('ci-1').total).toBe(1)
+    expect(graph.usage('cg-1').total).toBe(1)
+  })
+
+  it('an unused FIELD PARAMETER stays unused (roll-up is not a blanket used-flag)', () => {
+    const paramTable = make('p-1', 'fieldParameter', 'Field Slices', '')
+    const paramCol = make('pc-1', 'column', 'Field Currency', 'Field Slices')
+    const graph = buildGraph([paramTable, paramCol], [])
+    expect(graph.usage('p-1').total).toBe(0)
+    expect(graph.usage('pc-1').total).toBe(0)
+  })
+
+  it('a CALCULATED table (typed plain table, partition = calculated) rolls up its source-typed columns', () => {
+    // The reader types calculated tables 'table' (isCalcGroup/isFieldParameter
+    // take the other branches), so they were always in the containment index —
+    // pinned here so that stays true: Currency-View-style tables (Value1..4
+    // columns, DAX partition) roll their children up exactly like fact tables.
+    const calcTable = make('cv-1', 'table', 'Currency View', '')
+    const hiddenCol = make('cvc-1', 'column', 'Value1', 'Currency View', { hidden: true })
+    const visibleCol = make('cvc-2', 'column', 'Currency Mode', 'Currency View')
+    const graph = buildGraph(
+      [calcTable, hiddenCol, visibleCol],
+      [{ from: 'visual-1', to: 'cvc-2', kind: 'visual' }],
+    )
+    expect(graph.usage('cvc-2').total).toBe(1)
+    expect(graph.usage('cv-1').total).toBe(1)
+  })
 })

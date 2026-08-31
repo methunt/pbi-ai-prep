@@ -116,12 +116,10 @@ export function journalDiscard(
 export function project(model: ModelObject[], journal: JournalRecord[]): ModelObject[] {
   // Both collections are built dynamically from the journal, so Set/Map (not
   // Record) is the right shape here.
-  const deletes = new Set<string>()
+  const deletes = deletedIdsWithChildren(model, journal)
   const edits = new Map<string, Map<string, unknown>>() // objectId -> field -> value
   for (const rec of journal) {
-    if (rec.kind === 'delete') {
-      deletes.add(rec.objectId)
-    } else {
+    if (rec.kind !== 'delete') {
       let byField = edits.get(rec.objectId)
       if (byField === undefined) {
         byField = new Map()
@@ -141,4 +139,31 @@ export function project(model: ModelObject[], journal: JournalRecord[]): ModelOb
       for (const [field, value] of byField) target[field] = value
       return copy
     })
+}
+
+/**
+ * The journal's delete set EXPANDED with the fold-cascade rule: a deleted
+ * table-classified object takes its children with it (columns, calculated
+ * columns, measures, hierarchies, calc items — matched by pristine parent
+ * name). Shared by `project` (the read-model fold) and the write planner's
+ * delete guard so both agree on WHO dies in a save — a table-only delete
+ * must strand-guard its children's dependents exactly as if the user had
+ * staged them.
+ */
+export function deletedIdsWithChildren(model: ModelObject[], journal: JournalRecord[]): Set<string> {
+  const deletes = new Set<string>()
+  for (const rec of journal) {
+    if (rec.kind === 'delete') deletes.add(rec.objectId)
+  }
+  const deletedTableNames = new Set(
+    model
+      .filter((o) => deletes.has(o.id) && (o.type === 'table' || o.type === 'calculationGroup' || o.type === 'fieldParameter'))
+      .map((o) => o.name),
+  )
+  if (deletedTableNames.size > 0) {
+    for (const o of model) {
+      if (o.table !== '' && deletedTableNames.has(o.table)) deletes.add(o.id)
+    }
+  }
+  return deletes
 }

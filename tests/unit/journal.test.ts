@@ -179,4 +179,33 @@ describe('project', () => {
 
     expect(project(model, journal)).toEqual([])
   })
+
+  it('deleting a TABLE cascades to its columns, calculated columns and measures', () => {
+    // The children share the table's .tmdl file — the writer span-deletes the
+    // whole file on save, so the fold must drop them or every surface shows
+    // ghost rows after a table-only delete.
+    const table: ModelObject = { ...makeColumn('t1', 'Sales'), type: 'table', table: '' }
+    const col: ModelObject = { ...makeColumn('c1', 'Amount'), table: 'Sales' }
+    const calc: ModelObject = { ...makeColumn('cc1', 'Amount Doubled'), type: 'calculatedColumn', table: 'Sales' }
+    const measure: ModelObject = { ...makeColumn('m1', 'Total'), type: 'measure', table: 'Sales' }
+    const other: ModelObject = { ...makeColumn('c2', 'Qty'), table: 'Inventory' }
+    const model = [table, col, calc, measure, other]
+
+    const folded = project(model, journalAdd(model, [], deleteEdit('t1')))
+
+    expect(folded.map((o) => o.id)).toEqual(['c2'])
+  })
+
+  it('a table delete cascades even when a child was explicitly edited or deleted', () => {
+    const table: ModelObject = { ...makeColumn('t1', 'Sales'), type: 'table', table: '' }
+    const col: ModelObject = { ...makeColumn('c1', 'Amount'), table: 'Sales' }
+    const measure: ModelObject = { ...makeColumn('m1', 'Total'), type: 'measure', table: 'Sales' }
+    const model = [table, col, measure]
+
+    let journal = journalAdd(model, [], fieldEdit('c1', 'Edited')) // edit moot after cascade
+    journal = journalAdd(model, journal, deleteEdit('m1')) // explicit child delete too
+    journal = journalAdd(model, journal, deleteEdit('t1'))
+
+    expect(project(model, journal)).toEqual([])
+  })
 })

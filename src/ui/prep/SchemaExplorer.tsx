@@ -16,7 +16,7 @@ import type { ModelObject } from '../../domain/objects'
 import type { Usage } from '../../domain/graph'
 import SynonymChips from './SynonymChips'
 import { TYPE_META } from '../grid/typeMeta'
-import { usedClass } from '../grid/cellUtils'
+import { usedClass, isTableLikeType } from '../grid/cellUtils'
 import {
   buildAiRows,
   groupKeyOf,
@@ -244,9 +244,17 @@ function TableGroupRow({
   includesFor,
   synonymTotalFor,
 }: TableGroupRowProps) {
-  const { included, total } = includesFor(group.rows)
+  // The table's OWN row: table-classified objects group under their own name
+  // (groupKeyOf), so group.rows includes the table object itself. It is not a
+  // field — its synonyms drive the header's editable Synonyms line and its
+  // usage drives the Used/Unused pill. Rendering it as a FieldRow duplicated
+  // the table ("table → table → items").
+  const selfRow = group.rows.find((r) => r.obj.table === '' && r.obj.name === group.key)
+  const fields = selfRow !== undefined ? group.rows.filter((r) => r !== selfRow) : group.rows
+  const { included, total } = includesFor(fields)
   const allExcluded = included === 0
-  const synonymTotal = synonymTotalFor(group.rows)
+  const synonymTotal = synonymTotalFor(fields)
+  const selfUsage = selfRow !== undefined ? usageFor(selfRow) : null
 
   return (
     <div className="border-b border-border">
@@ -291,6 +299,12 @@ function TableGroupRow({
             {synonymTotal} synonym{synonymTotal === 1 ? '' : 's'}
           </span>
         )}
+        {selfRow !== undefined && selfUsage !== null && (
+          <span className={`pill pill-flat ${usedClass(selfUsage.total)} mono !text-[10px]`}>
+            {selfUsage.total === 0 ? 'Unused' : 'Used'}
+          </span>
+        )}
+
         <div className="ml-auto flex flex-none items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
           <button type="button" className="btn btn-outline btn-sm" disabled={readOnly} onClick={() => onStageVisibility(false)}>
             Include all
@@ -303,8 +317,44 @@ function TableGroupRow({
 
       {expanded && (
         <div className="border-t border-border bg-secondary/20">
+          {selfRow !== undefined && (
+            <div className="flex items-center gap-2.5 border-b border-border/50 py-2.5 pl-11 pr-4">
+              <span className="flex-none text-[11px] font-semibold text-foreground/70">Synonyms</span>
+              <div className="min-w-0 flex-1">
+                <SynonymChips
+                  terms={selfRow.terms}
+                  onAdd={(name) => {
+                    const result = addTerm(selfRow.terms, name)
+                    if (result.added) onAddTerm(selfRow.obj, result.terms)
+                  }}
+                  onRemove={(name) => {
+                    const result = removeTerm(selfRow.terms, name)
+                    if (result !== selfRow.terms) onRemoveTerm(selfRow.obj, result)
+                  }}
+                  readOnly={readOnly}
+                />
+              </div>
+              <span className="mono tabular flex-none text-[11px] text-foreground/60">
+                {liveTerms(selfRow.terms).length}/{SYNONYM_CAP}
+              </span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!selfRow.hidden}
+                aria-label={`${selfRow.obj.name} and all its fields included in AI`}
+                className={`switch flex-none ${selfRow.hidden ? '' : 'on'} ${readOnly ? 'cursor-not-allowed' : ''}`}
+                disabled={readOnly}
+                // Selecting the table stages EVERYTHING in it — the table
+                // entity plus its columns, calculated columns and measures —
+                // so one switch excludes the whole subtree from the AI schema
+                // (and re-includes it). Matches the delete-cascade mental
+                // model: the table owns its children.
+                onClick={() => onStageVisibility(!selfRow.hidden)}
+              />
+            </div>
+          )}
           <div className="flex flex-col divide-y divide-border/60">
-            {group.rows.map((row) => (
+            {fields.map((row) => (
               <FieldRow
                 key={row.obj.id}
                 row={row}
@@ -361,7 +411,7 @@ function FieldRow({ row, readOnly, dependents, usage, onToggleInclude, onAddTerm
         <div className="truncate text-[12.5px] font-semibold">{row.obj.name}</div>
         <div className="mt-0.5 flex items-center gap-1.5 text-[10.5px] text-foreground/55">
           <span className={`pill pill-flat ${usedClass(usage.total)} mono !text-[9.5px]`}>
-            {usage.total === 0 ? 'Unused' : row.obj.type === 'table' ? 'Used' : `Used ${usage.total}`}
+            {usage.total === 0 ? 'Unused' : isTableLikeType(row.obj.type) ? 'Used' : `Used ${usage.total}`}
           </span>
           {row.hidden && <span className="opacity-70">not reachable</span>}
         </div>

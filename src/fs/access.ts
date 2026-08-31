@@ -41,11 +41,15 @@ export interface DirEntry {
   kind: 'file' | 'directory'
   path: string
 }
-
 export interface ReadDirOptions {
   /** Replacement skip table (name → true) for `.pbi`/cache noise; default is `DEFAULT_SKIP_NAMES`. */
   skip?: Readonly<Record<string, true>>
-}
+  /** Walk budget (FR-2 hardening). The walk throws `WalkBudgetExceeded` when the
+ *   accumulated entry count crosses this number; the budget prevents a stray
+ *   giant folder (e.g. the user picked `C:\Users` by mistake) from hanging the
+ *   picker for tens of seconds. Default: 5000 entries. Set higher with care. */
+  maxEntries?: number
+ }
 
 // ---------------------------------------------------------------------------
 // Support
@@ -274,36 +278,58 @@ export async function readFile(root: FileSystemDirectoryHandle, posixPath: strin
 
 /**
  * Walk the directory tree from `root` (or the subtree at `posixPath`) and
- * return a flat list of entries with root-relative POSIX paths. Skips the
- * configured `.pbi`/cache noise names (default `DEFAULT_SKIP_NAMES`); nothing
- * else is skipped.
  */
-export async function readDir(
+ export async function readDir(
   root: FileSystemDirectoryHandle,
   posixPath = '',
   options: ReadDirOptions = {},
 ): Promise<DirEntry[]> {
   const skip = options.skip ?? DEFAULT_SKIP_NAMES
+  const maxEntries = options.maxEntries ?? 5000
   const dir = posixPath ? await resolveDir(root, splitPosix(posixPath)) : root
   const out: DirEntry[] = []
-  await walkDir(dir, '', out, skip)
+  await walkDir(dir, '', out, skip, maxEntries)
   return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }
 
+export class WalkBudgetExceeded extends Error {
+  readonly budget: number
+  constructor(budget: number) {
+    super(
+      `Folder walk exceeded the entry budget of ${budget} files/directories. ` +
+        `Pick a smaller folder — typically one that contains a "*.SemanticModel" directory.`,
+    )
+    this.name = 'WalkBudgetExceeded'
+    this.budget = budget
+  }
+}
 async function walkDir(
   dir: FileSystemDirectoryHandle,
   basePath: string,
   out: DirEntry[],
   skip: Readonly<Record<string, true>>,
+  budget: number,
 ): Promise<void> {
   for await (const entry of dir.values()) {
     if (skip[entry.name] === true) continue
     const path = basePath ? `${basePath}/${entry.name}` : entry.name
     out.push({ name: entry.name, kind: entry.kind === 'directory' ? 'directory' : 'file', path })
+    if (out.length > budget) throw new WalkBudgetExceeded(budget)
     if (entry.kind === 'directory') {
-      await walkDir(await dir.getDirectoryHandle(entry.name), path, out, skip)
+      await walkDir(await dir.getDirectoryHandle(entry.name), path, out, skip, budget)
     }
   }
+}
+
+/** Return the immediate child directory names of `handle` (one level deep). Used
+ *  by load.ts to sniff for a `*.SemanticModel` folder BEFORE walking the whole
+ *  tree — a wrong folder (e.g. `C:\Users`) is rejected in microseconds. */
+export async function listSubdirectories(handle: FileSystemDirectoryHandle): Promise<string[]> {
+  const out: string[] = []
+  for await (const entry of handle.values()) {
+    if (entry.kind === 'directory') out.push(entry.name)
+  }
+  return out.sort()
 }
 
 /**

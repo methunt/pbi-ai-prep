@@ -8,20 +8,20 @@
 // read as a literal single-consumer count, which it isn't. Tables show a
 // plain "Used" / "Unused" with no number.
 import type { Usage } from '../../domain/graph'
-import { usedClass, usedTooltip } from './cellUtils'
+import { isTableLikeType, usedClass, usedTooltip } from './cellUtils'
 import Tooltip from './Tooltip'
 
 export interface UsedCellProps {
   usage: Usage
   /** Distinct consumer count; `usage.total` is the canonical value. */
   total: number
-  /** Table rows show "Used"/"Unused" with no number (see file header). */
-  isTable?: boolean
+  /** The object's type — table-classified kinds show "Used"/"Unused" with no number. */
+  type: string
 }
 
-export default function UsedCell({ usage, total, isTable = false }: UsedCellProps) {
+export default function UsedCell({ usage, total, type }: UsedCellProps) {
   const cls = usedClass(total)
-  const label = total === 0 ? 'Unused' : isTable ? 'Used' : `Used ${total}`
+  const label = total === 0 ? 'Unused' : isTableLikeType(type) ? 'Used' : `Used ${total}`
   return (
     <Tooltip
       content={usedTooltip(usage, total)}

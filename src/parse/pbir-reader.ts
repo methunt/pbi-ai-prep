@@ -65,6 +65,13 @@ export interface VerifiedAnswer {
   otherPrompts: number
 }
 
+/** Per-visual display metadata (FR-7): the chart's author-visible caption and kind. */
+export interface VisualMeta {
+  /** The visual's own title (the chart's author caption), if authored and visible. */
+  title?: string
+  /** The chart kind, e.g. 'barChart', 'columnChart', 'slicer'. */
+  type?: string
+}
 /** The PBIR reader's output: per-visual bindings, ready edges, broken refs, and parse diagnostics. */
 export interface ReportParse {
   /** One entry per unique (visual, field) binding, resolved or broken. */
@@ -77,6 +84,9 @@ export interface ReportParse {
   errors: { file: string; message: string }[]
   /** Frozen question-to-visual pairs (FR-18), parsed from VerifiedAnswers/definitions. */
   verifiedAnswers: VerifiedAnswer[]
+  /** Per-visual display metadata (visualId → {title?, type?}). Every visual the
+   *  reader saw has an entry; consumers render `title || type || id`. */
+  visualMeta: Map<string, VisualMeta>
 }
 
 /** One collected reference, pre-resolution; `displayName` rides along as display metadata. */
@@ -131,7 +141,7 @@ export function parseReport(
 ): ReportParse | null {
   if (reportFiles === null || reportFiles.size === 0) return null
   const index = buildNameIndex(objects)
-  const result: ReportParse = { visualEdges: [], edges: [], broken: [], errors: [], verifiedAnswers: [] }
+  const result: ReportParse = { visualEdges: [], edges: [], broken: [], errors: [], verifiedAnswers: [], visualMeta: new Map() }
   const paths = [...reportFiles.keys()]
     .filter((p) => VISUAL_PATH.test(p.replace(/\\/g, '/')))
     .sort()
@@ -192,7 +202,15 @@ function collectVisual(path: string, json: unknown, index: NameIndex, result: Re
     }
     result.visualEdges.push(binding)
   }
-}
+  // Capture per-visual display metadata (FR-7): the chart's author caption and kind.
+  // Always set an entry per visual so consumers can fall through (title → type → id)
+  // uniformly; an entry with both fields absent signals "no metadata".
+  const title = extractVisualTitle(visual)
+  const type = isStr(visual?.visualType) && visual.visualType !== '' ? visual.visualType : undefined
+  if (title !== undefined || type !== undefined) {
+    result.visualMeta.set(visualId, { title, type })
+  }
+ }
 
 /** Scan report file entries for frozen verified-answer definitions (FR-18). */
 function collectVerifiedAnswers(reportFiles: Map<string, string>, result: ReportParse): void {
@@ -243,6 +261,25 @@ function decodeCacheVisualType(cacheKey: string): string | undefined {
     return undefined
   }
 }
+
+/**
+ * Extract the visual's own title from the `visual` sub-record. Power BI shapes:
+ *  - `visual.title` = string (legacy)
+ *  - `visual.title` = { show: boolean, text: string } (modern)
+ *  - `visual.title` = { show: false } → hidden, no caption
+ *  - `visual.title` = { text: "" } → no caption
+ *  - undefined → no caption
+ * Returns the trimmed, non-empty text, or undefined.
+ */
+function extractVisualTitle(visual: Record<string, unknown> | undefined): string | undefined {
+  const title = visual?.title
+  if (isStr(title)) return title.trim() === '' ? undefined : title.trim()
+  if (!isRec(title)) return undefined
+  if (title.show === false) return undefined
+  if (!isStr(title.text)) return undefined
+  const trimmed = title.text.trim()
+  return trimmed === '' ? undefined : trimmed
+ }
 
 /** Extract field references from every well of a queryState (Values, Rows, …). */
 function extractQueryState(queryState: unknown, refs: Map<string, FieldRef>): void {

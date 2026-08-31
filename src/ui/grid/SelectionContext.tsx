@@ -12,9 +12,11 @@
 // Bulk stages land as PENDING journal changes (AD-4) — never written to disk.
 // Read-only (permission !== 'granted') disables every write action (visible,
 // never hidden) and carries an in-bar explanation.
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Type } from 'lucide-react'
 import { useStore } from '../../state/store'
+import { requestLayer } from '../../state/broker'
+import { deriveReportFiles } from '../../state/layerDeps'
 import type { ModelObject } from '../../domain/objects'
 import type { RenameProposal } from '../../domain/rename'
 import ActionBar from './ActionBar'
@@ -36,6 +38,24 @@ export default function SelectionContext() {
   const layers = useStore((s) => s.layers)
 
   const [modal, setModal] = useState<ModalId>('none')
+
+  // Ensure the lineage layer (report visuals) is loaded before the cascade
+  // dialog opens — visuals live there, and without this the dialog would only
+  // show non-visual dependents (relationships, measures) even when report
+  // visuals reference the selection. The lineage canvas already triggers this
+  // on Relationships-tab mount; we mirror the same lazy parse here so deleting
+  // before visiting Relationships still surfaces visual dependents.
+  useEffect(() => {
+    if (modal !== 'delete') return
+    const lineage = layers.lineage
+    if (lineage.parseState === 'idle' || lineage.parseState === 'stale') {
+      void requestLayer('lineage', {
+        layerFiles: { reportFiles: deriveReportFiles(project) },
+        objects: pristine,
+      })
+    }
+  }, [modal, layers.lineage, project, pristine])
+
   const selectedCount = selectedIds.length
 
   const selectedObjs = useMemo(() => {
@@ -128,7 +148,7 @@ export default function SelectionContext() {
     for (const o of objects) {
       const obj = pristineById.get(o.id)
       if (obj === undefined) continue
-      journalAdd({ kind: 'delete', objectId: obj.id, file: obj.file, context: 'user' })
+      journalAdd({ kind: 'delete', objectId: o.id, file: o.file, context: 'user' })
     }
   }
 
@@ -227,52 +247,36 @@ function SetDescriptionDialog({
       aria-modal="true"
       aria-label="Set description"
     >
-      <div className="card elev-lg mx-4 w-full max-w-[520px] overflow-hidden fade-up">
-        <div className="flex items-center gap-3 border-b border-border px-5 py-4">
+      <div className="card elev-lg mx-4 w-full max-w-[480px] overflow-hidden fade-up">
+        <div className="flex items-start gap-3 border-b border-border px-5 py-4">
           <div
             className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px]"
             style={{
-              background: 'color-mix(in srgb, var(--color-sky) 12%, transparent)',
-              color: 'var(--color-sky)',
+              background: 'color-mix(in srgb, var(--color-primary) 12%, transparent)',
+              color: 'var(--color-primary)',
             }}
           >
             <Type className="h-[18px] w-[18px]" strokeWidth={2.3} aria-hidden="true" />
           </div>
-          <div>
+          <div className="min-w-0">
             <h3 className="text-[14.5px] font-bold leading-snug">
-              Set description for {selected.length} objects
+              Set description for {selected.length} object{selected.length === 1 ? '' : 's'}
             </h3>
-            <p className="mt-0.5 text-[12px] text-foreground/55">
-              The same description is staged for every selected object. Nothing is written
-              until you save.
-            </p>
           </div>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm ml-auto !p-1.5 flex-none"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.4} aria-hidden="true">
-              <path d="M18 6 6 18M6 6l12 12" />
-            </svg>
-          </button>
         </div>
-
         <div className="px-5 py-4">
           <textarea
-            className="field min-h-[120px] resize-y"
-            placeholder="Description applied to all selected objects…"
-            aria-label="Description"
+            className="input w-full"
+            rows={4}
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            autoFocus
+            placeholder="A description for the AI to read…"
+            maxLength={500}
           />
         </div>
-
         <div className="flex items-center gap-2 border-t border-border bg-secondary/40 px-5 py-3.5">
           {readOnly && (
-            <span className="text-[11px] text-amber">Read-only — staged edits are disabled</span>
+            <span className="text-[11px] text-amber">Read-only — write disabled</span>
           )}
           <div className="ml-auto flex items-center gap-2">
             <button type="button" className="btn btn-outline btn-sm" onClick={onClose}>
@@ -281,10 +285,10 @@ function SetDescriptionDialog({
             <button
               type="button"
               className="btn btn-primary btn-sm"
-              disabled={readOnly}
+              disabled={readOnly || value.trim() === ''}
               onClick={() => onApply(value)}
             >
-              Apply to selected
+              Apply
             </button>
           </div>
         </div>

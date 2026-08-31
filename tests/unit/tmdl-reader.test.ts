@@ -278,6 +278,58 @@ describe('relationship edges (column-level endpoints)', () => {
       { from: relNode, to: 'Sales[Missing]', kind: 'relationship' },
     ])
   })
+  it('populates relMeta with the relationship name + endpoint columns for the cascade dialog', () => {
+    const files = new Map<string, string>([
+      [
+        'definition/tables/Sales.tmdl',
+        'table Sales\n\tlineageTag: 33333333-3333-3333-3333-333333333333\n\n\tcolumn Region\n\t\tdataType: string\n\t\tlineageTag: 55555555-5555-5555-5555-555555555555\n',
+      ],
+      [
+        'definition/tables/Calendar.tmdl',
+        'table Calendar\n\tlineageTag: 66666666-6666-6666-6666-666666666666\n\n\tcolumn Date\n\t\tdataType: dateTime\n\t\tlineageTag: 77777777-7777-7777-7777-777777777777\n',
+      ],
+      [
+        'definition/relationships.tmdl',
+        'relationship 8b59cb3b-68ba-bc4a-76db\n\tfromColumn: Sales.Region\n\ttoColumn: Calendar.Date\n',
+      ],
+    ])
+    const result = parseTmdlProject(files)
+    const relNode = spanDerive(
+      'definition/relationships.tmdl',
+      locateDeclaration(files.get('definition/relationships.tmdl') as string, 0),
+    )
+    expect(result.relMeta.get(relNode)).toEqual({
+      name: '8b59cb3b-68ba-bc4a-76db',
+      endpoint: 'Sales[Region] → Calendar[Date]',
+    })
+  })
+
+  it('leaves relMeta empty when no relationships exist', () => {
+    const files = new Map<string, string>([
+      ['definition/model.tmdl', 'model Model\n\tculture: en-US\n'],
+      ['definition/database.tmdl', 'database Database\n\tcompatibilityLevel: 1500\n'],
+    ])
+    const result = parseTmdlProject(files)
+    expect(result.relMeta.size).toBe(0)
+  })
+
+  it('records an "unresolved endpoints" relMeta entry when from/to columns are missing', () => {
+    const files = new Map<string, string>([
+      [
+        'definition/relationships.tmdl',
+        'relationship orphan-r\n\tisActive: false\n',
+      ],
+    ])
+    const result = parseTmdlProject(files)
+    const relNode = spanDerive(
+      'definition/relationships.tmdl',
+      locateDeclaration(files.get('definition/relationships.tmdl') as string, 0),
+    )
+    expect(result.relMeta.get(relNode)).toEqual({
+      name: 'orphan-r',
+      endpoint: 'unresolved endpoints',
+    })
+  })
 })
 
 describe('error path (FR-5)', () => {

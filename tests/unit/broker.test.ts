@@ -79,8 +79,8 @@ describe('requestLayer — resolves the layer data (AD-7)', () => {
 
   it('commits report and lineage layer data too', async () => {
     const { factory, workers } = makeFactory()
-    const report = { visualEdges: [], edges: [], broken: [], errors: [] }
-    const lineage = { edges: [], broken: [], errors: [] }
+    const report = { visualEdges: [], visualMeta: new Map(), edges: [], broken: [], errors: [], verifiedAnswers: [] }
+    const lineage = { edges: [], broken: [], errors: [], visualMeta: new Map() }
 
     const pReport = requestLayer('report', {
       layerFiles: { reportFiles: new Map() },
@@ -101,6 +101,30 @@ describe('requestLayer — resolves the layer data (AD-7)', () => {
     expect(useStore.getState().layers.report.data).toEqual(report)
     expect(useStore.getState().layers.lineage.parseState).toBe('ready')
     expect(useStore.getState().layers.lineage.data).toEqual(lineage)
+  })
+
+  it('the lineage layer commit populates the store visualMeta map (cascade dialog labels)', async () => {
+    const { factory, workers } = makeFactory()
+    // Simulate what the parse worker must deliver — the visualMeta map of
+    // visualId → {title?, type?} so the cascade dialog can name visual
+    // dependents instead of showing their minted ids.
+    const visualMeta = new Map<string, { title?: string; type?: string }>([
+      ['visual:v-1', { title: 'Sales by Region', type: 'barChart' }],
+      ['visual:v-2', { title: undefined, type: 'columnChart' }],
+    ])
+    const lineage = { edges: [], broken: [], errors: [], visualMeta }
+
+    const p = requestLayer('lineage', {
+      layerFiles: { reportFiles: new Map() },
+      objects: NO_OBJECTS,
+      workerFactory: factory,
+    })
+    workers[0].deliver(lineage)
+    await p
+
+    // The store must have the map — the cascade dialog reads this and renders
+    // titles/types for visual dependents.
+    expect(useStore.getState().visualMeta).toBe(visualMeta)
   })
 })
 
